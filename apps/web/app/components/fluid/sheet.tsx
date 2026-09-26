@@ -129,7 +129,8 @@ const registry: Record<string, Part> = {
     return (
       <div
         className={cn(
-          "flex flex-col gap-(--page-gap) [&>[data-filters]+[data-filters]]:mt-[calc(1rem-var(--page-gap))]",
+          // Filter rows and callouts that follow each other sit close together, the page gap separates sections
+          "flex flex-col gap-(--page-gap) [&>[data-filters]+[data-filters]]:mt-[calc(1rem-var(--page-gap))] [&>[data-callout]+[data-callout]]:mt-[calc(0.5rem-var(--page-gap))]",
           compact ? "[--page-gap:2rem]" : "[--page-gap:3.5rem]",
         )}
       >
@@ -327,7 +328,7 @@ const registry: Record<string, Part> = {
   },
   Callout: ({ el }) => (
     // Warnings are facts to check, not errors, so no red
-    <Alert role="status">
+    <Alert role="status" data-callout>
       {el.props.tone === "warning" ? <TriangleAlertIcon /> : <InfoIcon />}
       <AlertDescription>{String(el.props.text ?? "")}</AlertDescription>
     </Alert>
