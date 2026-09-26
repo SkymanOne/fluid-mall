@@ -55,9 +55,11 @@ export type Intent = {
 // every follow-up prompt, like the json-render playground. Code builds the candidates, Jev picks and arranges.
 //
 // Catalog, all props are literal values:
-//   Page        { title: string, theme: ThemeName, density: "roomy" | "compact" }   root only, slot default
+//   Page        { title: string, theme: ThemeName, density: "roomy" | "compact", groupBy?: "category" | "colour" }
+//                                                                                 root only, slot default. groupBy colour: code makes one Section per colour
 //   Section     { title: string, slot: SlotName | null, open?: boolean }          slot default. slot set = an outfit category.
-//                                                                                 Folds from its heading, open false starts folded
+//                                                                                 Folds from its heading, open false starts folded.
+//                                                                                 colour?: string marks a section of one colour, made by code
 //   Grid        { size: "small" | "medium" | "large" }                            slot default
 //   Carousel    { size: "small" | "medium" | "large" }                            slot default
 //   List        { size: "small" | "medium" | "large" }                            slot default

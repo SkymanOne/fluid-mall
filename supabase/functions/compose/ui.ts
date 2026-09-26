@@ -18,10 +18,19 @@ const LABEL_KINDS = ["cheapest", "fastest", "free_delivery", "few_left", "long_r
 
 const components = {
   Page: {
-    props: z.object({ title: z.string(), theme: z.enum(["studio", "backstage", "showroom"]), density: z.enum(["roomy", "compact"]) }),
+    props: z.object({
+      title: z.string(),
+      theme: z.enum(["studio", "backstage", "showroom"]),
+      density: z.enum(["roomy", "compact"]),
+      groupBy: z.enum(["category", "colour"]).optional(),
+    }),
     slots: ["default"],
   },
-  Section: { props: z.object({ title: z.string(), slot: SLOT_ENUM.nullable(), open: z.boolean().optional() }), slots: ["default"] },
+  // colour marks a section of one colour, made by code when the Page groups by colour
+  Section: {
+    props: z.object({ title: z.string(), slot: SLOT_ENUM.nullable(), open: z.boolean().optional(), colour: z.string().optional() }),
+    slots: ["default"],
+  },
   Grid: { props: sized, slots: ["default"] },
   Carousel: { props: sized, slots: ["default"] },
   List: { props: sized, slots: ["default"] },
@@ -225,17 +234,24 @@ function copy(setup: Setup) {
 }
 
 // Atomic element recipes, the only things Jev can place. Props never come from the model
-export function buildCandidates(setup: Setup): Candidate[] {
+export function buildCandidates(setup: Setup, samples: Piece[] = samplesOf(setup)): Candidate[] {
   const out: Candidate[] = [];
   const add = (id: string, description: string, type: Type, props: Record<string, unknown>, extra: Partial<Candidate> = {}) =>
     out.push({ id, description, element: { type, props }, root: false, ...extra });
   for (const theme of Object.keys(THEMES) as ThemeName[]) {
     for (const density of ["roomy", "compact"] as const) {
-      add(`page_${theme}_${density}`, `Page titled "${setup.title}", ${THEMES[theme]} ${theme} theme, ${DENSITIES[density]}.`, "Page", {
-        title: setup.title,
-        theme,
-        density,
-      }, { root: true, resource: "page" });
+      for (const groupBy of ["category", "colour"] as const) {
+        add(
+          `page_${theme}_${density}${groupBy === "colour" ? "_by_colour" : ""}`,
+          `Page titled "${setup.title}", ${THEMES[theme]} ${theme} theme, ${DENSITIES[density]}, ` +
+            (groupBy === "colour"
+              ? "items split by colour: one Section for each colour, like 'a category for each colour', 'group by colour' or 'split by colour'. Only when the request mentions colour groups."
+              : "items split by kind of clothing: one Section each for jackets, tops, bottoms and shoes. The default."),
+          "Page",
+          { title: setup.title, theme, density, groupBy },
+          { root: true, resource: "page" },
+        );
+      }
     }
   }
   const c = copy(setup);
@@ -265,7 +281,7 @@ export function buildCandidates(setup: Setup): Candidate[] {
     }
   }
   add("separator", "Separator: a line between sections. Only when asked.", "Separator", {}, { maxUses: 8 });
-  for (const p of samplesOf(setup)) {
+  for (const p of samples) {
     const peers = setup.kind === "set" ? setup.pieces : setup.pieces.filter((x) => x.slot === p.slot);
     const every = `every ${setup.kind === "set" ? "item" : `${p.slot} item`}`;
     add(`card_${p.id}`, `ProductCard: the sample card, code shows ${every} with the same design. Sample data: ${describe(p)}`, "ProductCard", { id: p.id });
@@ -480,7 +496,7 @@ function label(e: SpecElement, byId: Map<string, Piece>): string {
   const of = p ? ` on every card in its Section` : "";
   switch (e.type) {
     case "Page":
-      return `Page "${e.props.title}", ${e.props.theme} theme, ${e.props.density}`;
+      return `Page "${e.props.title}", ${e.props.theme} theme, ${e.props.density}, items grouped by ${e.props.groupBy ?? "category"}`;
     case "Section":
       return `Section "${e.props.title}"${e.props.slot ? `, ${e.props.slot} category` : ""}${e.props.open === false ? ", folded" : ", open"}`;
     case "ProductCard":
@@ -515,13 +531,19 @@ export async function* refineUI(
   signal: AbortSignal,
 ): AsyncGenerator<{ spec: Spec } | { stop: "finish" | "limit" | "unavailable" | "error" }> {
   const byId = new Map(setup.pieces.map((p) => [p.id, p]));
-  // Jev edits the design, one sample card per section. Every step is bound back to all the pieces
-  const design = sample(spec, new Set(samplesOf(setup).map((p) => p.id)));
+  // Jev edits the design, one sample card per section: the section's first card. Every step is bound back to all the pieces
+  const within = (id: string): string[] => [id, ...(spec.elements[id]?.children ?? []).flatMap(within)];
+  const firsts = Object.keys(spec.elements).filter((k) => spec.elements[k].type === "Section")
+    .map((s) => within(s).find((k) => spec.elements[k]?.type === "ProductCard"))
+    .map((k) => byId.get(spec.elements[k ?? ""]?.props.id as string))
+    .filter((p): p is Piece => !!p);
+  const samples = firsts.length ? [...new Set(firsts)] : samplesOf(setup);
+  const design = sample(spec, new Set(samples.map((p) => p.id)));
   try {
     for await (
       const event of experimental_composeSpec({
         catalog,
-        candidates: buildCandidates(setup),
+        candidates: buildCandidates(setup, samples),
         initialSpec: design,
         elementDescriptions: Object.fromEntries(Object.entries(design.elements).map(([id, e]) => [id, label(e, byId)])),
         prompt,
@@ -533,7 +555,7 @@ export async function* refineUI(
         context: { kind: setup.kind, pieces: setup.pieces.length },
         instructions: {
           next:
-            "Make only the change the shopper asks for and keep everything else. Each Section shows one sample ProductCard and code repeats its design for every item in that Section, so change the sample card once to change every item in the Section. Never remove a sample ProductCard. To show more photos, descriptions, materials, ratings, returns or stock, add a Gallery, Description, Rating, Returns or StockBadge inside the sample card of each Section. To change how items are laid out or their photo size, replace each container (Grid, Carousel, List) with the requested one, its cards stay. To change the theme or spacing, replace the Page with the matching variant. To let the shopper filter items, add one Filters per thing they want to filter by (size, colour, delivery, price). To hide a category, remove its Section. To fold or collapse a category, or open a folded one, replace its Section with the folded or open variant. When the request is about every item or every category, repeat the change in every Section. Check already_built and changes_made before you finish and only finish when none is left.",
+            "Make only the change the shopper asks for and keep everything else. Each Section shows one sample ProductCard and code repeats its design for every item in that Section, so change the sample card once to change every item in the Section. Never remove a sample ProductCard. To show more photos, descriptions, materials, ratings, returns or stock, add a Gallery, Description, Rating, Returns or StockBadge inside the sample card of each Section. To change how items are laid out or their photo size, replace each container (Grid, Carousel, List) with the requested one, its cards stay. To change the theme or spacing, replace the Page with the matching variant. To let the shopper filter items, add one Filters per thing they want to filter by (size, colour, delivery, price). To group items by colour, or back by category, replace the Page with the variant that keeps its theme and density and has the requested grouping. To hide a category, remove its Section. To fold or collapse a category, or open a folded one, replace its Section with the folded or open variant. When the request is about every item or every category, repeat the change in every Section. Check already_built and changes_made before you finish and only finish when none is left.",
           parent: PARENT,
         },
       })
@@ -549,6 +571,17 @@ export async function* refineUI(
     console.error("Jev refine", err);
     yield { stop: "error" };
   }
+}
+
+const SLOT_ORDER: SlotName[] = ["outer", "top", "bottom", "shoes"];
+
+// One group per colour, biggest first, pieces with no known colour last
+function colourGroups(pieces: Piece[]) {
+  const count = new Map<string, number>();
+  for (const p of pieces) count.set(p.colour ?? "other", (count.get(p.colour ?? "other") ?? 0) + 1);
+  return [...count.keys()]
+    .sort((a, b) => (a === "other" ? 1 : b === "other" ? -1 : count.get(b)! - count.get(a)!))
+    .map((colour) => ({ title: colour === "other" ? "Other colours" : colour[0].toUpperCase() + colour.slice(1), slot: null, colour }));
 }
 
 // The design Jev sees: each section keeps only its sample card
@@ -579,8 +612,39 @@ export function bind(design: Spec, pieces: Piece[], grow: boolean): Spec {
     const card = find(s, (t) => t === "ProductCard");
     return [s, card ? [...new Set(E[card].children!.map((c) => E[c].type))] : [...DEFAULT_PARTS, "Label"]];
   }));
-  const set = sections().some((s) => E[s].props.slot === null);
-  for (const slot of grow && !set ? [...new Set(pieces.map((p) => p.slot))] : []) {
+  // Grouping by colour rebuilds the sections, one per colour, in the style of the first section. Going back to
+  // categories rebuilds them per category the same way
+  const byColour = E[design.root]?.props.groupBy === "colour";
+  const stale = sections().filter((s) => byColour || !!E[s].props.colour);
+  if (stale.length) {
+    const first = sections()[0];
+    const firstBox = first && find(first, isContainer);
+    const box = firstBox ? { type: E[firstBox].type, props: { ...E[firstBox].props } } : { type: "Grid", props: { size: "medium" } };
+    const parts = types.get(first) ?? [...DEFAULT_PARTS, "Label"];
+    const root = E[design.root].children ?? [];
+    const at = root.findIndex((k) => E[k]?.type === "Section" || E[k]?.type === "Stack");
+    const before = new Set(root.slice(0, at === -1 ? root.length : at));
+    // A section the shopper folded stays folded when it is rebuilt
+    const folded = new Set(stale.filter((s) => E[s].props.open === false).map((s) => E[s].props.title));
+    stale.forEach(drop);
+    for (const k of Object.keys(E)) if (E[k]?.type === "Stack" && !E[k].children?.length) drop(k);
+    const groups = byColour ? colourGroups(pieces) : SLOT_ORDER.filter((s) => pieces.some((p) => p.slot === s)).map((s) => ({ title: LABEL[s], slot: s }));
+    const ids = groups.map((g) => {
+      const key = "colour" in g ? `colour_${g.colour}` : g.slot;
+      const sid = fresh(E, `section_${key}`);
+      const bid = fresh(E, `box_${key}`);
+      E[bid] = { type: box.type, props: box.props, children: [] };
+      E[sid] = { type: "Section", props: { ...g, open: !folded.has(g.title) }, children: [bid] };
+      types.set(sid, parts);
+      return sid;
+    });
+    const rest = E[design.root].children ?? [];
+    const pos = rest.findIndex((k) => !before.has(k));
+    rest.splice(pos === -1 ? rest.length : pos, 0, ...ids);
+    E[design.root].children = rest;
+  }
+  const set = sections().some((s) => E[s].props.slot === null && !E[s].props.colour);
+  for (const slot of grow && !set && !byColour ? [...new Set(pieces.map((p) => p.slot))] : []) {
     if (sections().some((s) => E[s].props.slot === slot)) continue;
     const model = sections()[0];
     const box = model && find(model, isContainer);
@@ -595,7 +659,8 @@ export function bind(design: Spec, pieces: Piece[], grow: boolean): Spec {
   }
   for (const s of sections()) {
     within(s).filter((k) => E[k]?.type === "ProductCard").forEach(drop);
-    const mine = pieces.filter((p) => E[s].props.slot === null || p.slot === E[s].props.slot);
+    const colour = E[s].props.colour as string | undefined;
+    const mine = pieces.filter((p) => colour ? (p.colour ?? "other") === colour : E[s].props.slot === null || p.slot === E[s].props.slot);
     const box = find(s, isContainer);
     if (!mine.length || !box) drop(s);
     else E[box].children!.push(...mine.map((p) => addCard(E, p, cardParts(types.get(s)!, p, pieces))));
@@ -626,6 +691,15 @@ function repair(spec: Spec, byId: Map<string, Piece>): Spec {
     gone(id);
   };
   const hasCard = (id: string): boolean => E[id]?.type === "ProductCard" || (E[id]?.children ?? []).some(hasCard);
+  // Jev sometimes adds a Page variant inside the page instead of replacing it. Its settings go to the root page
+  for (const k of Object.keys(E)) {
+    if (k === spec.root || E[k]?.type !== "Page" || !E[spec.root]) continue;
+    const root = E[spec.root];
+    root.props = { ...root.props, ...E[k].props, title: root.props.title };
+    for (const x of Object.keys(E)) if (E[x].children?.includes(k)) E[x].children = E[x].children!.filter((c) => c !== k);
+    root.children = [...(root.children ?? []), ...(E[k].children ?? [])];
+    delete E[k];
+  }
   for (const k of Object.keys(E)) if (E[k]?.type === "ProductCard" && !byId.has(E[k].props.id as string)) drop(k);
   const cardOf = new Map(Object.keys(E).filter((k) => E[k].type === "ProductCard").map((k) => [E[k].props.id as string, k]));
   for (const k of Object.keys(E)) {
@@ -682,5 +756,13 @@ export function demo() {
   console.assert(out.elements[out.elements[shoes].children![0]].type === "Carousel", "a new category copies the first section's style");
   console.assert(out.elements.page.children!.at(-1) === "total", "total stays last");
   console.assert(!Object.values(bind(design, pieces, false).elements).some((e) => e.props.slot === "shoes"), "no new section without grow");
+  const coloured = pieces.map((p, i) => ({ ...p, colour: ["black", "black", null][i] }));
+  const byColour = bind({ root: out.root, elements: { ...out.elements, page: { ...out.elements.page, props: { ...out.elements.page.props, groupBy: "colour" } } } }, coloured, false);
+  const titles = (s: Spec) => Object.values(s.elements).filter((e) => e.type === "Section").map((e) => e.props.title).join();
+  console.assert(titles(byColour) === "Black,Other colours", "one section per colour, unknown last");
+  console.assert(byColour.elements[byColour.elements.section_colour_black.children![0]].children!.length === 2, "both black pieces in Black");
+  console.assert(byColour.elements[byColour.elements.section_colour_black.children![0]].type === "Carousel", "colour sections keep the design");
+  const back = bind({ root: "page", elements: { ...byColour.elements, page: { ...byColour.elements.page, props: { ...byColour.elements.page.props, groupBy: "category" } } } }, coloured, false);
+  console.assert(titles(back) === "Tops,Shoes", "back to one section per category");
   return "ok";
 }

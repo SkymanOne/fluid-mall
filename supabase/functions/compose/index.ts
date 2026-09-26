@@ -184,7 +184,7 @@ async function run(req: ComposeRequest, send: (e: ComposeEvent) => void, signal:
       prompt: req.prompt,
       say: plan.say,
     };
-    spec = req.template ? checkSpec(fromTemplate(req.template, pieces, setup.title), pieces) : null;
+    spec = req.template ? checkSpec(bind(fromTemplate(req.template, pieces, setup.title), pieces, true), pieces) : null;
     if (spec) {
       note("Loaded your saved storefront");
       last = sendSpec(send, spec, last);
@@ -227,6 +227,13 @@ async function run(req: ComposeRequest, send: (e: ComposeEvent) => void, signal:
         else last = sendSpec(send, (spec = step.spec), last);
       }
       if (stop !== "finish" || last === before) break;
+    }
+    // Regrouping is one Page setting picked from 12 Page variants, which Jev sometimes misses. Code applies what the agent asked for
+    const groupBy = /\bby colou?r\b/i.test(plan.ui) ? "colour" : /\bby (category|categories|type)\b/i.test(plan.ui) ? "category" : null;
+    const page = spec.elements[spec.root];
+    if (groupBy && page && (page.props.groupBy ?? "category") !== groupBy) {
+      spec = bind({ root: spec.root, elements: { ...spec.elements, [spec.root]: { ...page, props: { ...page.props, groupBy } } } }, pieces, false);
+      last = sendSpec(send, spec, last);
     }
     // A second round that finds nothing left may say unavailable, that is not a failure
     if ((stop === "unavailable" || stop === "error") && last === start && !refiltered) note("Could not make that change");

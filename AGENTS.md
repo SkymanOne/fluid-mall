@@ -53,7 +53,7 @@ Every source (Shopify, Tavily, seed) maps to one normalized product shape before
 ### Fluid UI
 
 - The UI is a json-render flat spec. The catalog is listed in `apps/web/app/lib/types.ts`:
-  - Layout: Page, Section (folds from its heading, Jev can start it folded), Stack, Grid, Carousel, List, Separator.
+  - Layout: Page (groups items by category or by colour), Section (folds from its heading, Jev can start it folded), Stack, Grid, Carousel, List, Separator.
   - Items: ProductCard with SizePicker, AddToBag, Delivery, Returns, StockBadge and Label inside.
   - Page content: Heading, Text, Callout, Filters (by size, colour, delivery or price, applied in the browser), CompareTable, ShopSummary, OutfitTotal.
   Props are literal values from code, never model text. Heading and Text use prepared copy. Label and Callout state facts computed from piece data (cheapest, fastest delivery, free UK delivery, few left, long returns, samples shown, delivery unknown).
