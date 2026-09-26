@@ -240,7 +240,7 @@ function Reshape() {
               </span>
             </button>
           ))}
-          <p className="note">Sample pieces from made up shops.</p>
+          <p className="note">Sample pieces.</p>
         </div>
         <div className="shop" data-layout={layout} data-dark={dark}>
           <div className="shop-head" style={{ viewTransitionName: "shop-head" }}>
@@ -312,7 +312,7 @@ function Bag() {
           <strong>{money(total)}</strong>
         </div>
         <p className="note" style={{ marginTop: "1.25rem" }}>
-          Sample bag from made up shops. Checkout in Fluid is simulated, no money moves.
+          Sample bag. Checkout in Fluid is simulated, no money moves.
         </p>
       </div>
     </section>
@@ -323,10 +323,10 @@ function Truth() {
   return (
     <section className="section wrap truth">
       <div className="section-head">
-        <h2 className="h2">Facts from the shop. Never made up.</h2>
+        <h2 className="h2">Stock information. All in one place.</h2>
         <p>
-          Price, sizes, stock, UK delivery and returns come from each shop's own page. If a shop does not say, Fluid shows it as unknown and links you to the
-          shop.
+          Price, sizes, stock, UK delivery and returns come from each shop's own page. Save yourself time checking size availability.
+          Fluid will fetch it for you.
         </p>
       </div>
       <div className="label">
@@ -408,7 +408,6 @@ export default function Home() {
         </p>
         <div className="footer-row">
           <p>Shopping mall in your hands</p>
-          <p>Made for the Grok Bot Commerce London Hackathon, September 2026</p>
         </div>
       </footer>
     </>
