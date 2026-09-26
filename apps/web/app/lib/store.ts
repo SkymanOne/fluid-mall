@@ -16,6 +16,8 @@ export type Group = {
   pieces: Record<string, Piece>;
   picks: Partial<Record<SlotName, string>>;
   sizes: Record<string, string>;
+  // Pieces saved for later with the heart. Missing on groups stored before it existed
+  saved?: string[];
 };
 
 // An AI picture of an outfit group, stored per group id beside the groups. key: the picked piece ids it shows.

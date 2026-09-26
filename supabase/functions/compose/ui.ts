@@ -9,12 +9,21 @@ import {
 } from "npm:@json-render/core@0.21.0";
 import { z } from "npm:zod@4.3.6";
 import { jev, within } from "./ai.ts";
-import type { LabelKind, Piece, SlotName, Spec, SpecElement, ThemeName } from "./types.ts";
+import type { LabelKind, Piece, SlotName, SortBy, Spec, SpecElement, ThemeName } from "./types.ts";
 
 const SLOT_ENUM = z.enum(["outer", "top", "bottom", "shoes"]);
 const sized = z.object({ size: z.enum(["small", "medium", "large"]) });
 const part = z.object({ id: z.string() });
-const LABEL_KINDS = ["cheapest", "fastest", "free_delivery", "few_left", "long_returns"] as const;
+const LABEL_KINDS = ["cheapest", "fastest", "free_delivery", "few_left", "long_returns", "sale"] as const;
+const SORT_BY = ["featured", "price_low", "price_high", "delivery", "saving", "rating"] as const;
+const SORT_TEXT: Record<SortBy, string> = {
+  featured: "in the order the shops were found",
+  price_low: "price low to high, cheapest first",
+  price_high: "price high to low",
+  delivery: "fastest UK delivery first",
+  saving: "biggest saving first",
+  rating: "top rated first",
+};
 
 const components = {
   Page: {
@@ -43,6 +52,10 @@ const components = {
   Gallery: { props: part },
   Description: { props: part },
   Rating: { props: part },
+  WasPrice: { props: part },
+  Colours: { props: part },
+  SizeButtons: { props: part },
+  SizeGuide: { props: part },
   OutfitTotal: { props: z.object({}) },
   Heading: { props: z.object({ text: z.string(), level: z.enum(["h2", "h3"]) }) },
   Text: { props: z.object({ text: z.string(), tone: z.enum(["body", "muted"]) }) },
@@ -53,6 +66,10 @@ const components = {
   CompareTable: { props: z.object({ slot: SLOT_ENUM.nullable() }) },
   Filters: { props: z.object({ by: z.enum(["size", "colour", "delivery", "price"]) }) },
   ShopSummary: { props: z.object({}) },
+  Sort: { props: z.object({ by: z.enum(SORT_BY) }) },
+  TrustBar: { props: z.object({}) },
+  DeliveryProgress: { props: z.object({}) },
+  Saved: { props: z.object({}) },
 };
 type Type = keyof typeof components;
 
@@ -67,9 +84,31 @@ const catalog = {
 // so a long choice runs as a small tournament: each chunk picks a winner, then the winners are compared
 const MAX_OPTIONS = 250;
 
+// TypeSafe takes about 64k input tokens per request (max_tokens_exceeded above that), and a batched layout step
+// for a full outfit comes close. Questions are independent, so a big batch goes out as a few requests at once.
+// About 3 characters a token, so this keeps each request near 35k tokens
+const MAX_CHARS = 100_000;
+
+function split<Q>(state: unknown, questions: Record<string, Q>, max = MAX_CHARS): Record<string, Q>[] {
+  const base = JSON.stringify(state).length;
+  const batches: Record<string, Q>[] = [{}];
+  let size = base;
+  for (const [id, q] of Object.entries(questions)) {
+    const n = JSON.stringify(q).length;
+    if (size + n > max && Object.keys(batches.at(-1)!).length) {
+      batches.push({});
+      size = base;
+    }
+    batches.at(-1)![id] = q;
+    size += n;
+  }
+  return batches;
+}
+
 async function ask(state: unknown, questions: Record<string, Experimental_ChoiceQuestion>, signal: AbortSignal) {
-  const res = await jev(state, questions, within(signal, 15000));
-  return { answers: res.answers, tokens: res.usage?.input_tokens ?? 0 };
+  const res = await Promise.all(split(state, questions).map((b) => jev(state, b, within(signal, 15000))));
+  if (Deno.env.get("JEV_DEBUG")) console.log("JEV", res.map((r) => r.usage?.input_tokens).join("+"), "tokens", Object.keys(questions).length, "questions");
+  return { answers: Object.assign({}, ...res.map((r) => r.answers)), tokens: res.reduce((n, r) => n + (r.usage?.input_tokens ?? 0), 0) };
 }
 
 // Our own evaluator, straight to TypeSafe. The json-render question shape matches theirs
@@ -123,8 +162,13 @@ const PARTS = {
   Gallery: "photo gallery with more photos",
   Description: "the shop's description and details like material, fit and care",
   Rating: "star rating from shoppers",
+  WasPrice: "was and now price with the saving, sale price",
+  Colours: "the other colours it comes in",
+  SizeButtons: "every size as a button to tap, sold out sizes crossed out",
+  SizeGuide: "size guide link: sizes in stock and the shop's fit notes",
 };
-// Gallery, Description and Rating are offered only when the shop gave that data
+const FIT = /\bfit|model|true to size|size (?:up|down)|inseam|leg length/i;
+// Parts that need shop data are offered only when some piece has it. A card keeps the part either way and shows nothing without data
 const has = (t: string, p: Piece) =>
   t === "Gallery"
     ? (p.images?.length ?? 0) > 1
@@ -132,12 +176,22 @@ const has = (t: string, p: Piece) =>
     ? !!p.description || (p.details?.length ?? 0) > 0
     : t === "Rating"
     ? !!p.rating
+    : t === "WasPrice"
+    ? (p.wasPrice ?? 0) > p.price
+    : t === "Colours"
+    ? (p.colours?.length ?? 0) > 0
+    : t === "SizeButtons"
+    ? (p.sizes?.length ?? 0) > 1
+    : t === "SizeGuide"
+    ? (p.sizes?.length ?? 0) > 1 || (p.details ?? []).some((d) => FIT.test(d))
     : true;
 type Part = keyof typeof PARTS;
 const PART_TYPES = Object.keys(PARTS) as Part[];
 const DEFAULT_PARTS: Part[] = ["SizePicker", "AddToBag", "Delivery"];
 // Page level extras kept in Jev's order when code arranges a new tree
-const EXTRAS = new Set(["Heading", "Text", "Callout", "Separator", "CompareTable", "ShopSummary", "Filters"]);
+const EXTRAS = new Set(["Heading", "Text", "Callout", "Separator", "CompareTable", "ShopSummary", "Filters", "Sort", "TrustBar", "DeliveryProgress", "Saved"]);
+// Sort and Filters sit together just above the first Section
+const TOOLBAR = ["Sort", "Filters"];
 const isContainer = (t: string) => t in CONTAINERS;
 const isPart = (t: string) => t in PARTS || t === "Label";
 export const LABEL: Record<SlotName, string> = { outer: "Jackets", top: "Tops", bottom: "Bottoms", shoes: "Shoes" };
@@ -160,7 +214,7 @@ function describe(p: Piece): string {
   const d = p.ukDelivery;
   const delivery = !d ? "UK delivery unknown" : `UK delivery ${d.price === 0 ? "free" : d.price === null ? "price unknown" : `£${d.price}`}${d.days ? `, ${d.days}` : ""}`;
   return [
-    `${short(p)}${p.brand ? ` by ${p.brand}` : ""}, £${p.price}, colour ${p.colour ?? "unknown"}, category ${p.slot}`,
+    `${short(p)}${p.brand ? ` by ${p.brand}` : ""}, £${p.price}${p.wasPrice ? ` was £${p.wasPrice}` : ""}, colour ${p.colour ?? "unknown"}, category ${p.slot}`,
     `sizes in stock ${inStock.join(" ") || "not listed"}`,
     delivery,
     p.rating ? `rated ${p.rating.value} from ${p.rating.count} reviews` : "",
@@ -185,6 +239,7 @@ export function labelsFor(p: Piece, all: Piece[]): LabelKind[] {
   if (open > 0 && open <= 2 && (p.sizes ?? []).length > 3) kinds.push("few_left");
   // 28 days is the UK norm, longer than that is worth a label
   if ((p.returns?.days ?? 0) > 28) kinds.push("long_returns");
+  if ((p.wasPrice ?? 0) > p.price) kinds.push("sale");
   return kinds;
 }
 
@@ -284,16 +339,18 @@ export function buildCandidates(setup: Setup, samples: Piece[] = samplesOf(setup
     }
   }
   add("separator", "Separator: a line between sections. Only when asked.", "Separator", {}, { maxUses: 8 });
+  // A part some piece on the page has data for is offered in every section, so a request about every item reaches them all
+  const parts = PART_TYPES.filter((t) => setup.pieces.some((x) => has(t, x)));
   for (const p of samples) {
     const peers = setup.kind === "set" ? setup.pieces : setup.pieces.filter((x) => x.slot === p.slot);
     const every = `every ${setup.kind === "set" ? "item" : `${p.slot} item`}`;
     add(`card_${p.id}`, `ProductCard: the sample card, code shows ${every} with the same design. Sample data: ${describe(p)}`, "ProductCard", { id: p.id });
-    for (const t of PART_TYPES.filter((t) => peers.some((x) => has(t, x)))) {
+    for (const t of parts) {
       add(`${t.toLowerCase()}_${p.id}`, `${t}: ${PARTS[t]} on ${every}. Goes inside the sample ProductCard of its Section.`, t, { id: p.id });
     }
     const kind = peers.flatMap((x) => labelsFor(x, setup.pieces))[0];
     if (kind) {
-      add(`label_${p.id}`, `Label: facts computed from shop data, like cheapest, fastest UK delivery, free UK delivery, few sizes left or long returns, on ${every} that has one. Goes inside the sample ProductCard of its Section.`, "Label", {
+      add(`label_${p.id}`, `Label: facts computed from shop data, like cheapest, on sale, fastest UK delivery, free UK delivery, few sizes left or long returns, on ${every} that has one. Goes inside the sample ProductCard of its Section.`, "Label", {
         id: p.id,
         kind: labelsFor(p, setup.pieces)[0] ?? kind,
       });
@@ -307,6 +364,24 @@ export function buildCandidates(setup: Setup, samples: Piece[] = samplesOf(setup
   for (const [by, what] of Object.entries(FILTER_BY)) {
     add(`filters_${by}`, `Filters: buttons that let the shopper filter every item on the page by ${what}. Goes in the Page before the Sections. Only when the request asks for filters or to filter by ${by}.`, "Filters", { by }, { maxUses: 1 });
   }
+  // One Sort per page. by is the order it starts in, the shopper can pick another. Orders need data to sort on
+  const any = (f: (p: Piece) => unknown) => setup.pieces.some(f);
+  const sortable: Record<SortBy, boolean> = {
+    featured: true,
+    price_low: true,
+    price_high: true,
+    delivery: any((p) => p.ukDelivery?.maxDays != null),
+    saving: any((p) => (p.wasPrice ?? 0) > p.price),
+    rating: any((p) => p.rating),
+  };
+  for (const by of SORT_BY.filter((s) => sortable[s])) {
+    add(`sort_${by}`, `Sort: a sort menu for every item on the page, starting ${SORT_TEXT[by]}. Goes in the Page before the Sections. Only when the request asks to sort or order the items.`, "Sort", { by }, { resource: "sort" });
+  }
+  add("trust_bar", "TrustBar: a row of reassurance facts: free UK delivery, returns window, one bag for every shop, when prices were checked. Only when the request asks for trust, reassurance or a trust bar.", "TrustBar", {});
+  if (any((p) => p.ukDelivery?.freeOver != null && p.ukDelivery.price !== 0)) {
+    add("delivery_progress", "DeliveryProgress: how much more to spend at each shop for free UK delivery, with progress bars from the bag. Only when the request asks about free delivery progress or thresholds.", "DeliveryProgress", {});
+  }
+  add("saved", "Saved: a heart on every item and the list of items the shopper saved, a wishlist. Only when the request asks to save items for later, for a wishlist or for hearts.", "Saved", {});
   if (setup.kind === "outfit") add("outfit_total", "OutfitTotal: the outfit total price and an Add outfit to bag button.", "OutfitTotal", {});
   return out;
 }
@@ -372,11 +447,12 @@ function fresh(elements: Record<string, SpecElement>, base: string): string {
 }
 
 // A card's parts in the order of types. Label stands for every label the piece has, parts without data are left out
+// Parts without data stay, so the section's design survives when its first piece lacks that data
 const cardParts = (types: string[], p: Piece, all: Piece[]): SpecElement[] =>
   types.flatMap((type) =>
     type === "Label"
       ? labelsFor(p, all).map((kind) => ({ type, props: { id: p.id, kind } }))
-      : type in PARTS && has(type, p)
+      : type in PARTS
       ? [{ type, props: { id: p.id } }]
       : []
   );
@@ -442,7 +518,7 @@ function arrange(spec: Spec, setup: Setup): Spec | null {
 }
 
 const PARENT =
-  "A Section goes in the Page or in a Stack. A container (Grid, Carousel, List) goes in a Section. A ProductCard goes in the container of the Section for its own category. A detail part (SizePicker, AddToBag, Delivery, Returns, StockBadge, Gallery, Description, Rating, Label) goes inside the ProductCard of the same item. Headings, Text, Callouts, Filters, CompareTable, ShopSummary and Stacks go in the Page, Filters before the Sections. OutfitTotal goes in the Page after the Sections.";
+  `A Section goes in the Page or in a Stack. A container (Grid, Carousel, List) goes in a Section. A ProductCard goes in the container of the Section for its own category. A detail part (${PART_TYPES.join(", ")}, Label) goes inside the ProductCard of the same item. Headings, Text, Callouts, Sort, Filters, TrustBar, DeliveryProgress, Saved, CompareTable, ShopSummary and Stacks go in the Page, Sort and Filters before the Sections. OutfitTotal goes in the Page after the Sections.`;
 
 // Builds a new storefront with Jev in one batch. Yields every step's spec, then a fallback built in code if Jev could not
 export async function* composeUI(
@@ -471,8 +547,8 @@ export async function* composeUI(
             setup.kind === "outfit"
               ? `Include one Section per category (${sections.join(", ")}) and one Grid medium container in each Section, so ${sections.length} Grid medium in total, unless the request asks for another container or photo size.`
               : "Include the Section and one Grid medium container in it, unless the request asks for another container or photo size.",
-            "Include the sample ProductCard of each Section, code shows every item of the Section with the same design. The sample card holds a SizePicker, AddToBag, Delivery and the Label when one is offered. Include Returns, StockBadge, Gallery, Description and Rating only when the request asks for them.",
-            "Include a Callout about samples or unknown delivery when one is offered. Include Headings, Text, Stacks, Separators, CompareTables, Filters and the ShopSummary only when the request asks for them. For filters, add one Filters per thing the shopper wants to filter by.",
+            "Include the sample ProductCard of each Section, code shows every item of the Section with the same design. The sample card holds a SizePicker, AddToBag, Delivery and the Label when one is offered. Include Returns, StockBadge, Gallery, Description, Rating, WasPrice, Colours and SizeGuide only when the request asks for them. Use SizeButtons instead of the SizePicker when the request asks for size buttons.",
+            "Include a Callout about samples or unknown delivery when one is offered. Include Headings, Text, Stacks, Separators, CompareTables, Filters, Sort, TrustBar, DeliveryProgress, Saved and the ShopSummary only when the request asks for them. For filters, add one Filters per thing the shopper wants to filter by.",
             setup.kind === "outfit" ? "Include the OutfitTotal, it goes last." : "",
             storefront ? `Reproduce the style of this saved storefront: ${storefront}` : "",
           ].filter(Boolean).join(" "),
@@ -520,6 +596,14 @@ function label(e: SpecElement, byId: Map<string, Piece>): string {
       return `Filters by ${e.props.by} for every item on the page`;
     case "OutfitTotal":
       return "OutfitTotal: outfit total and Add outfit to bag button";
+    case "Sort":
+      return `Sort menu for every item on the page, starting ${SORT_TEXT[e.props.by as SortBy] ?? "in the shops' order"}`;
+    case "TrustBar":
+      return "TrustBar: free UK delivery, returns, one bag and price check facts";
+    case "DeliveryProgress":
+      return "DeliveryProgress: spend left for free UK delivery per shop";
+    case "Saved":
+      return "Saved: hearts on every item and the list of saved items";
   }
   if (isContainer(e.type)) return `${e.type}, ${e.props.size} size, ${CONTAINERS[e.type as keyof typeof CONTAINERS]}`;
   if (e.type in PARTS) return `${e.type}: ${PARTS[e.type as Part]}${of}`;
@@ -558,11 +642,12 @@ export async function* refineUI(
         context: { kind: setup.kind, pieces: setup.pieces.length },
         instructions: {
           next:
-            "Make only the change the shopper asks for and keep everything else. Each Section shows one sample ProductCard and code repeats its design for every item in that Section, so change the sample card once to change every item in the Section. Never remove a sample ProductCard. To show more photos, descriptions, materials, ratings, returns or stock, add a Gallery, Description, Rating, Returns or StockBadge inside the sample card of each Section. To change how items are laid out or their photo size, replace each container (Grid, Carousel, List) with the requested one, its cards stay. To change the theme or spacing, replace the Page with the matching variant. To let the shopper filter items, add one Filters per thing they want to filter by (size, colour, delivery, price). To group items by colour, or back by category, replace the Page with the variant that keeps its theme and density and has the requested grouping. To hide a category, remove its Section. To fold or collapse a category, or open a folded one, replace its Section with the folded or open variant. When the request is about every item or every category, repeat the change in every Section. Check already_built and changes_made before you finish and only finish when none is left.",
+            "Make only the change the shopper asks for and keep everything else. Each Section shows one sample ProductCard and code repeats its design for every item in that Section, so change the sample card once to change every item in the Section. Never remove a sample ProductCard. To show more photos, descriptions, materials, ratings, returns or stock, add a Gallery, Description, Rating, Returns or StockBadge inside the sample card of each Section. The same for sale or was and now prices (WasPrice), other colours (Colours) and a size guide or fit notes (SizeGuide). For size buttons, replace the SizePicker with SizeButtons. To save items for later, a wishlist or hearts on items, add one Saved to the Page. To sort items, add one Sort to the Page, or replace it to change the order. For a trust or reassurance bar, add a TrustBar. For free delivery progress or thresholds, add a DeliveryProgress. To change how items are laid out or their photo size, replace each container (Grid, Carousel, List) with the requested one, its cards stay. To change the theme or spacing, replace the Page with the matching variant. To let the shopper filter items, add one Filters per thing they want to filter by (size, colour, delivery, price). To group items by colour, or back by category, replace the Page with the variant that keeps its theme and density and has the requested grouping. To hide a category, remove its Section. To fold or collapse a category, or open a folded one, replace its Section with the folded or open variant. When the request is about every item or every category, repeat the change in every Section. Check already_built and changes_made before you finish and only finish when none is left.",
           parent: PARENT,
         },
       })
     ) {
+      if (Deno.env.get("JEV_DEBUG")) console.log("STEP", event.type === "step" ? event.step.description : event.stopReason);
       if (event.type !== "step") yield { stop: event.stopReason };
       else {
         const next = bind(repair(event.spec as Spec, byId), setup.pieces, false);
@@ -668,13 +753,13 @@ export function bind(design: Spec, pieces: Piece[], grow: boolean): Spec {
     if (!mine.length || !box) drop(s);
     else E[box].children!.push(...mine.map((p) => addCard(E, p, cardParts(types.get(s)!, p, pieces))));
   }
-  // Filters sit together just above the first Section, wherever Jev put them
+  // Sort then Filters sit together just above the first Section, wherever Jev put them
   const top = E[design.root]?.children ?? [];
-  const filters = top.filter((k) => E[k]?.type === "Filters");
-  if (filters.length) {
-    const rest = top.filter((k) => E[k]?.type !== "Filters");
+  const tools = top.filter((k) => TOOLBAR.includes(E[k]?.type)).sort((a, b) => TOOLBAR.indexOf(E[a].type) - TOOLBAR.indexOf(E[b].type));
+  if (tools.length) {
+    const rest = top.filter((k) => !tools.includes(k));
     const at = rest.findIndex((k) => E[k]?.type === "Section" || E[k]?.type === "Stack");
-    rest.splice(at === -1 ? rest.length : at, 0, ...filters);
+    rest.splice(at === -1 ? rest.length : at, 0, ...tools);
     E[design.root].children = rest;
   }
   return { root: design.root, elements: E };
@@ -711,9 +796,16 @@ function repair(spec: Spec, byId: Map<string, Piece>): Spec {
     const p = parentOf(k);
     if (p === home) continue;
     if (p) E[p].children = E[p].children!.filter((c) => c !== k);
-    const same = (c: string) => E[c].type === E[k].type && E[c].props.kind === E[k].props.kind;
+    const same = (c: string) => E[c].type === E[k].type && E[c].props.kind === E[k].props.kind && E[c].props.id === E[k].props.id;
     if (home && !E[home].children!.some(same)) E[home].children!.push(k);
     else delete E[k];
+  }
+  // Page content Jev drops inside a card or container moves to the Page, binding would lose it there
+  for (const k of Object.keys(E)) {
+    const p = parentOf(k);
+    if (!EXTRAS.has(E[k].type) || !p || (E[p].type !== "ProductCard" && !isContainer(E[p].type))) continue;
+    E[p].children = E[p].children!.filter((c) => c !== k);
+    E[spec.root]?.children?.push(k);
   }
   for (const k of Object.keys(E)) if ((E[k]?.type === "Section" || isContainer(E[k]?.type ?? "")) && !hasCard(k)) drop(k);
   for (const k of Object.keys(E)) if (E[k]?.type === "Stack" && !E[k].children?.length) drop(k);
@@ -767,5 +859,40 @@ export function demo() {
   console.assert(byColour.elements[byColour.elements.section_colour_black.children![0]].type === "Carousel", "colour sections keep the design");
   const back = bind({ root: "page", elements: { ...byColour.elements, page: { ...byColour.elements.page, props: { ...byColour.elements.page.props, groupBy: "category" } } } }, coloured, false);
   console.assert(titles(back) === "Tops,Shoes", "back to one section per category");
+  // A part the sample piece has no data for stays on every card, so the next edit still sees it
+  const sale = [{ ...pieces[0], wasPrice: null }, { ...pieces[1], wasPrice: 40 }];
+  const withWas = bind({
+    root: "page",
+    elements: {
+      page: { type: "Page", props: { title: "T", theme: "studio", density: "roomy" }, children: ["s_top", "filters", "sort", "trust"] },
+      s_top: { type: "Section", props: { title: "Tops", slot: "top" }, children: ["box"] },
+      box: { type: "Grid", props: { size: "medium" }, children: ["card_a"] },
+      card_a: { type: "ProductCard", props: { id: "a" }, children: ["was_a"] },
+      was_a: { type: "WasPrice", props: { id: "a" } },
+      filters: { type: "Filters", props: { by: "price" } },
+      sort: { type: "Sort", props: { by: "price_low" } },
+      trust: { type: "TrustBar", props: {} },
+    },
+  }, sale, false);
+  const cardsOf = (s: Spec) => Object.values(s.elements).filter((e) => e.type === "ProductCard");
+  console.assert(cardsOf(withWas).length === 2 && cardsOf(withWas).every((c) => c.children!.some((k) => withWas.elements[k].type === "WasPrice")), "every card keeps WasPrice");
+  console.assert(labelsFor(sale[1], sale).includes("sale") && !labelsFor(sale[0], sale).includes("sale"), "only a reduced piece gets the sale label");
+  console.assert(withWas.elements.page.children!.map((k) => withWas.elements[k].type).join() === "Sort,Filters,Section,TrustBar", "Sort then Filters above the sections, other extras stay");
+  // Jev sometimes drops a part in another section's card. Two swapped parts both go home
+  const swapped = repair({
+    root: "page",
+    elements: {
+      page: { type: "Page", props: {}, children: ["card_a", "card_c"] },
+      card_a: { type: "ProductCard", props: { id: "a" }, children: ["was_c", "saved"] },
+      card_c: { type: "ProductCard", props: { id: "c" }, children: ["was_a"] },
+      was_a: { type: "WasPrice", props: { id: "a" } },
+      was_c: { type: "WasPrice", props: { id: "c" } },
+      saved: { type: "Saved", props: {} },
+    },
+  }, new Map(pieces.map((p) => [p.id, p])));
+  console.assert(swapped.elements.card_a.children!.join() === "was_a" && swapped.elements.card_c.children!.join() === "was_c", "parts go to their own card");
+  console.assert(swapped.elements.page.children!.at(-1) === "saved", "page content leaves the card");
+  const qs = Object.fromEntries(["a", "b", "c"].map((k) => [k, "x".repeat(40)]));
+  console.assert(split({}, qs, 100).map((b) => Object.keys(b).join("")).join() === "ab,c" && split({}, qs).length === 1, "big batches split, small ones stay whole");
   return "ok";
 }

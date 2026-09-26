@@ -25,6 +25,8 @@ export type PageProduct = Omit<PieceExtras, "deliveryOptions"> & {
   site: string | null;
   image: string | null;
   price: number;
+  // The earlier price in the same currency when the page marks the product down
+  wasPrice: number | null;
   currency: string;
   sizes: Size[];
 };
@@ -121,17 +123,21 @@ const inStock = (v: unknown) => {
   return /OutOfStock|SoldOut|Discontinued/i.test(a) ? false : /InStock|LimitedAvailability|OnlineOnly|PreOrder/i.test(a) ? true : null;
 };
 
-type Offer = { price: number | null; currency: string | null; available: boolean | null; size: string | null };
+type Offer = { price: number | null; was: number | null; currency: string | null; available: boolean | null; size: string | null };
 
 function offersOf(v: unknown): Offer[] {
   return [v].flat().filter((o): o is Node => !!o && typeof o === "object").flatMap((o) => {
     if (isType(o, "AggregateOffer")) {
       const inner = offersOf(o.offers);
-      return inner.length ? inner : [{ price: money(o.lowPrice ?? o.price), currency: str(o.priceCurrency), available: inStock(o.availability), size: null }];
+      return inner.length ? inner : [{ price: money(o.lowPrice ?? o.price), was: null, currency: str(o.priceCurrency), available: inStock(o.availability), size: null }];
     }
-    const spec = [o.priceSpecification].flat()[0] as Node | undefined;
+    // A reduced price carries the old one as a second price specification, priceType StrikethroughPrice or ListPrice
+    const specs = [o.priceSpecification].flat().filter((x): x is Node => !!x && typeof x === "object");
+    const listed = specs.find((x) => /StrikethroughPrice|ListPrice/i.test(String(x.priceType ?? "")));
+    const spec = specs.find((x) => x !== listed);
     return [{
       price: money(o.price ?? spec?.price),
+      was: money(listed?.price),
       currency: str(o.priceCurrency ?? spec?.priceCurrency),
       available: inStock(o.availability),
       size: nameOf((o.itemOffered as Node | undefined)?.size) ?? nameOf(o.size),
@@ -238,6 +244,7 @@ export function readProduct(html: string, url: string): PageProduct | null {
         image: images[0] ?? null,
         images,
         price: priced.price!,
+        wasPrice: priced.was && priced.was > priced.price! ? priced.was : null,
         currency: (priced.currency ?? meta["product:price:currency"] ?? meta["og:price:currency"] ?? "").toUpperCase(),
         sizes,
         description: description(desc),
@@ -259,6 +266,7 @@ export function readProduct(html: string, url: string): PageProduct | null {
     image: images[0] ?? null,
     images,
     price,
+    wasPrice: null,
     currency: currency.toUpperCase(),
     sizes: sizesInHtml(html),
     description: description(meta["og:description"] ?? meta["description"]),
@@ -276,5 +284,10 @@ export function demo() {
   const sel = `<select name="size"><option>Select size</option><option>UK 7</option><option disabled>UK 8 - Sold out</option></select>`;
   console.assert(JSON.stringify(sizesInHtml(sel)) === '[{"label":"UK 7","available":true},{"label":"UK 8","available":false}]', "select sizes");
   console.assert(sizesInHtml("<p>no picker</p>").length === 0, "nothing guessed");
+  const offer = (specs: unknown[]) =>
+    `<script type="application/ld+json">${JSON.stringify({ "@type": "Product", name: "Tee", offers: { "@type": "Offer", availability: "InStock", priceCurrency: "GBP", priceSpecification: specs } })}</script>`;
+  const was = readProduct(offer([{ price: 30 }, { price: 45, priceType: "https://schema.org/StrikethroughPrice" }]), "https://shop.test/tee");
+  console.assert(was?.price === 30 && was.wasPrice === 45, "sale price and was price");
+  console.assert(readProduct(offer([{ price: 30 }]), "https://shop.test/tee")?.wasPrice === null, "no was price when not reduced");
   return "ok";
 }

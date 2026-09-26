@@ -47,7 +47,7 @@ Rules:
 
 ### Product data
 
-Shoppers stay in Fluid. A piece carries what its shop page offers: all photos, brand, the shop's description, detail facts (material, fit, care), rating, other colours, sizes and stock, every UK delivery option and returns. The detail view shows all of it and the shop link is only a quiet source line. Everything is extracted from the shop's own data, never written by a model.
+Shoppers stay in Fluid. A piece carries what its shop page offers: all photos, brand, the shop's description, detail facts (material, fit, care), rating, other colours, the was price when the shop marks it down, sizes and stock, every UK delivery option and returns. The detail view shows all of it and the shop link is only a quiet source line. Everything is extracted from the shop's own data, never written by a model.
 
 Every source (Shopify, Tavily, seed) maps to one normalized product shape before it reaches the agent or the UI. Required fields: merchant, title, images, price and currency, variants and sizes, availability, shipping policy, delivery estimate, returns policy, source URL, fetched at. Unknown values stay `null` and the UI shows them as unknown with a link to the merchant.
 
@@ -55,10 +55,12 @@ Every source (Shopify, Tavily, seed) maps to one normalized product shape before
 
 - The UI is a json-render flat spec. The catalog is listed in `apps/web/app/lib/types.ts`:
   - Layout: Page (groups items by category or by colour), Section (folds from its heading, Jev can start it folded), Stack, Grid, Carousel, List, Separator.
-  - Items: ProductCard with SizePicker, AddToBag, Delivery, Returns, StockBadge and Label inside.
-  - Page content: Heading, Text, Callout, Filters (by size, colour, delivery or price, applied in the browser), CompareTable, ShopSummary, OutfitTotal.
-  Props are literal values from code, never model text. Heading and Text use prepared copy. Label and Callout state facts computed from piece data (cheapest, fastest delivery, free UK delivery, few left, long returns, samples shown, delivery unknown).
+  - Items: ProductCard with SizePicker or SizeButtons, SizeGuide, AddToBag, Delivery, Returns, StockBadge, Gallery, Description, Rating, WasPrice, Colours and Label inside. Code puts WasPrice and Colours next to the price.
+  - Page content: Heading, Text, Callout, Sort and Filters (applied in the browser, code keeps them together above the first Section), TrustBar, DeliveryProgress (spend left for free UK delivery per shop, from the group's bag), Saved (a heart on every photo and the list of saved pieces), CompareTable, ShopSummary, OutfitTotal.
+  Props are literal values from code, never model text. Heading and Text use prepared copy. Label and Callout state facts computed from piece data (cheapest, on sale, fastest delivery, free UK delivery, few left, long returns, samples shown, delivery unknown).
 - Jev designs, code binds. Jev sees one sample ProductCard per section and its candidates (detail parts, labels), sections per category (open or folded), containers in three sizes and Page variants per theme and density. Code then loads every piece of the section into the sample card's design (`bind` in `supabase/functions/compose/ui.ts`), so a change to the sample reaches every item and Jev's question stays the same size however many items there are. Items cannot be styled one by one.
+- A detail part is offered in every section when any piece on the page has its data. Every card keeps the parts of its sample and shows nothing where the piece lacks the data, so the design survives the next edit.
+- TypeSafe rejects a request over about 64k input tokens (`max_tokens_exceeded`) and a question over about 32k. `ask` in `ui.ts` sends a big batch of questions as several requests at once. `JEV_DEBUG=1` logs token counts and each refine step.
 - Search returns 10 items per category unless the shopper names a number. Pieces without a photo are dropped. Below 7, fictional samples matching the query fill in.
 - `apps/web/app/components/fluid` renders any valid spec with shadcn components. A new catalog component needs a candidate on the server and a renderer on the client.
 - A storefront is how a group looks, independent of its items. Saving one stores its UI tree as JSON with the products taken out (`toTemplate` in `apps/web/app/lib/template.ts`, mirrored in the function). When the shopper picks it for new searches, the products found load into it (`fromTemplate`) instead of a fresh Jev composition. "Use here" loads the open group's products into it without a request. Refine steps still run on top.

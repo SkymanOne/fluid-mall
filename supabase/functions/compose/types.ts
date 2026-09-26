@@ -16,6 +16,9 @@ export type Piece = {
   // GBP. When the shop sells in another currency, `converted` keeps the original
   price: number;
   converted: { amount: number; currency: string } | null;
+  // The shop's own earlier price in GBP when it marks the piece down (Shopify compare_at_price, schema.org
+  // StrikethroughPrice). null when not reduced or unknown
+  wasPrice: number | null;
   sizes: { label: string; available: boolean }[];
   // null means unknown, show "Unknown, check at <merchant>"
   ukDelivery: { price: number | null; freeOver: number | null; days: string | null; maxDays: number | null } | null;
@@ -65,6 +68,8 @@ export type Intent = {
 //   ProductCard { id: string }                                                    slot default, holds the detail parts below
 //   SizePicker  { id: string }   AddToBag { id: string }   Delivery { id: string }
 //   Returns     { id: string }   StockBadge { id: string }
+//   WasPrice    { id: string }   Colours { id: string }                           next to the price: was and now price, other colours
+//   SizeButtons { id: string }   SizeGuide { id: string }                         sizes as buttons, size and fit popover
 //   OutfitTotal {}                                                                the outfit total and Add outfit to bag
 //   Heading     { text: string, level: "h2" | "h3" }                             prepared copy only (request title, quoted text)
 //   Text        { text: string, tone: "body" | "muted" }                         prepared copy only (agent line, piece and shop counts)
@@ -76,8 +81,13 @@ export type Intent = {
 //   CompareTable { slot: SlotName | null }                                        price, delivery and returns for every piece in that category, null for all
 //   Filters     { by: "size" | "colour" | "delivery" | "price" }                  buttons that filter every item on the page, in the browser
 //   ShopSummary {}                                                               UK delivery and returns per shop on the page
+//   Sort        { by: SortBy }                                                   sort control for every item on the page, in the browser. by is the first order
+//   TrustBar    {}                                                               free UK delivery, returns, one bag and when prices were checked
+//   DeliveryProgress {}                                                          spend left for free UK delivery per shop, from the group's bag
+//   Saved       {}                                                               saved items list. Puts a heart on every ProductCard photo
 // Every Label is computed in code from piece data, never written by a model
-export type LabelKind = "cheapest" | "fastest" | "free_delivery" | "few_left" | "long_returns";
+export type LabelKind = "cheapest" | "fastest" | "free_delivery" | "few_left" | "long_returns" | "sale";
+export type SortBy = "featured" | "price_low" | "price_high" | "delivery" | "saving" | "rating";
 
 export type SpecElement = {
   type: string;

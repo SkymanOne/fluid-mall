@@ -142,6 +142,8 @@ export function mockPieces(slot: SlotName): (Piece & PieceExtras)[] {
       colour,
       price,
       converted: null,
+      // Every third sample is marked down so sale prices have something to show
+      wasPrice: i % 3 === 1 ? Math.ceil((price * 1.3) / 5) * 5 : null,
       // Every third size sold out so the size picker has something to show
       sizes: labels.map((label, j) => ({ label, available: (i + j) % 3 !== 0 })),
       ukDelivery: shop.ukDelivery,

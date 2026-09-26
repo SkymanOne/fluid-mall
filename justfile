@@ -54,7 +54,7 @@ db-link ref:
 db-push:
     pnpm supabase db push
 
-# Run the compose Edge Function on :8000 without Docker. Set COMPOSE_DEV_SKIP_AUTH=1 to skip the JWT check
+# Run the compose Edge Function on :8000 without Docker. Set COMPOSE_DEV_SKIP_AUTH=1 to skip the JWT check, PORT for another port
 compose-dev:
     #!/usr/bin/env bash
     set -euo pipefail

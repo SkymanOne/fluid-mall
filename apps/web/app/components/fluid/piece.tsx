@@ -1,8 +1,9 @@
-import { CheckIcon, StarIcon } from "lucide-react";
+import { CheckIcon, RulerIcon, StarIcon } from "lucide-react";
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "~/components/ui/carousel";
 import { useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Separator } from "~/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
@@ -72,6 +73,84 @@ export function SizeSelect({ piece, size, onSize }: { piece: Piece; size: string
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+// Every size as a button to tap. Sold out sizes stay in the row, crossed out
+export function SizeButtons({ piece, size, onSize, compact }: { piece: Piece; size: string | null; onSize: (s: string) => void; compact?: boolean }) {
+  if (!piece.sizes.length && piece.source === "live") return <p className="text-sm text-muted-foreground">Sizes not listed by {piece.merchant}</p>;
+  if (piece.sizes.length <= 1) return null;
+  return (
+    <ToggleGroup
+      type="single"
+      variant="outline"
+      size={compact ? "sm" : "default"}
+      spacing={1}
+      value={size ?? ""}
+      onValueChange={(v) => v && onSize(v)}
+      aria-label={`Sizes for ${piece.title}`}
+      className="flex-wrap justify-start"
+    >
+      {piece.sizes.map((s) => (
+        <ToggleGroupItem key={s.label} value={s.label} disabled={!s.available} aria-label={s.available ? s.label : `${s.label}, sold out`}>
+          {s.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  );
+}
+
+// The shop's fit notes, like "Model is 6ft and wears M" or "True to size"
+const FIT = /\bfit|model|true to size|size (?:up|down)|inseam|leg length/i;
+
+// Sizes with stock and fit notes from the shop. Measurements stay at the shop, never guessed
+export function SizeGuide({ piece }: { piece: Piece }) {
+  const fit = (piece.details ?? []).filter((d) => FIT.test(d));
+  if (piece.sizes.length <= 1 && !fit.length) return null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="link" size="sm" className="h-auto self-start p-0 text-foreground">
+          <RulerIcon data-icon="inline-start" />
+          Size guide
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 gap-3">
+        <PopoverHeader>
+          <PopoverTitle className="font-heading text-base font-bold">Size and fit</PopoverTitle>
+          <PopoverDescription className="line-clamp-1">{piece.title}</PopoverDescription>
+        </PopoverHeader>
+        {piece.sizes.length > 1 && (
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1">
+            {piece.sizes.map((s) => (
+              <div key={s.label} className="contents">
+                <dt className={cn(!s.available && "text-muted-foreground line-through")}>{s.label}</dt>
+                <dd className={cn("text-right", !s.available && "text-muted-foreground")}>{s.available ? "In stock" : "Sold out"}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {fit.length > 0 && (
+          <ul className="flex list-disc flex-col gap-1 pl-4 text-muted-foreground">
+            {fit.map((d) => (
+              <li key={d}>{d}</li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {piece.source === "mock" ? (
+            "Sample piece, no size chart"
+          ) : (
+            <>
+              Measurements at{" "}
+              <a href={piece.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                {piece.merchant}
+              </a>
+            </>
+          )}
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -187,13 +266,7 @@ export function PieceDetail({ piece, size, onSize, onAdd }: { piece: Piece; size
       {piece.sizes.length > 1 && (
         <div className="flex flex-col gap-2">
           <span className="font-heading text-sm font-semibold">Size</span>
-          <ToggleGroup type="single" variant="outline" spacing={1} value={size ?? ""} onValueChange={(v) => v && onSize(v)} aria-label={`Sizes for ${piece.title}`} className="flex-wrap">
-            {piece.sizes.map((s) => (
-              <ToggleGroupItem key={s.label} value={s.label} disabled={!s.available} aria-label={s.available ? s.label : `${s.label}, sold out`}>
-                {s.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <SizeButtons piece={piece} size={size} onSize={onSize} />
         </div>
       )}
       <AddButton piece={piece} size={size} onAdd={onAdd} className="h-12 w-full text-base" />

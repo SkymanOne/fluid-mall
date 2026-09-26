@@ -17,7 +17,7 @@ const CORS = {
 
 const LIVE_BUDGET_MS = 15000;
 
-Deno.serve(async (req) => {
+Deno.serve({ port: Number(Deno.env.get("PORT") ?? 8000) }, async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST") return reply(405, "Use POST");
   if (!(await authorised(req))) return reply(401, "Unauthorized");
@@ -99,7 +99,13 @@ function parseRequest(raw: unknown): ComposeRequest | null {
     ? r.pieces.filter((x) =>
       typeof x?.id === "string" && /^[\w-]{1,130}$/.test(x.id) && SLOTS.includes(x.slot) &&
       typeof x.title === "string" && typeof x.merchant === "string" && Number.isFinite(x.price)
-    ).map((x) => ({ ...x, title: x.title.slice(0, 200), merchant: x.merchant.slice(0, 80), sizes: Array.isArray(x.sizes) ? x.sizes : [] }))
+    ).map((x) => ({
+      ...x,
+      title: x.title.slice(0, 200),
+      merchant: x.merchant.slice(0, 80),
+      sizes: Array.isArray(x.sizes) ? x.sizes : [],
+      wasPrice: typeof x.wasPrice === "number" && x.wasPrice > x.price ? x.wasPrice : null,
+    }))
       .slice(0, 80)
     : [];
   const s = r.spec as Spec | null | undefined;

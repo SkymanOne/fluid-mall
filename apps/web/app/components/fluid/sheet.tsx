@@ -1,5 +1,5 @@
-import { ChevronDownIcon, InfoIcon, SparklesIcon, TriangleAlertIcon, XIcon } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { ChevronDownIcon, ClockIcon, HeartIcon, InfoIcon, ShoppingBagIcon, SparklesIcon, TriangleAlertIcon, TruckIcon, Undo2Icon, XIcon } from "lucide-react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -7,6 +7,8 @@ import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { Marker, MarkerContent } from "~/components/ui/marker";
+import { Progress } from "~/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Separator } from "~/components/ui/separator";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
@@ -16,9 +18,9 @@ import { outfitImage } from "~/lib/agent";
 import { byMerchant, deliveryLine, freeDelivery, gbp, returnsLine, slotLabel, slotOrder } from "~/lib/format";
 import type { Group, OutfitImage } from "~/lib/store";
 import { useSupabase } from "~/lib/supabase";
-import type { LabelKind, Piece, SlotName, Spec, SpecElement, ThemeName } from "~/lib/types";
+import type { LabelKind, Piece, SlotName, SortBy, Spec, SpecElement, ThemeName } from "~/lib/types";
 import { cn } from "~/lib/utils";
-import { AddButton, Description, Figure, Gallery, Photo, Rating, SizeSelect, Stock } from "./piece";
+import { AddButton, Description, Figure, Gallery, Photo, Rating, SizeButtons, SizeGuide, SizeSelect, Stock } from "./piece";
 
 const kids = (el: SpecElement | undefined) => el?.children ?? el?.slots?.default ?? [];
 
@@ -41,6 +43,9 @@ export type GroupActions = {
   onAdd: (lines: { piece: Piece; size: string | null }[]) => void;
   onOpen: (piece: Piece) => void;
   onRemoveFilter: (key: string) => void;
+  onSave: (id: string) => void;
+  // This group's bag, for free delivery progress
+  bag: { piece: Piece; size: string | null }[];
 };
 
 // What the shopper picked in the page's Filters. Filtering happens here, the items and the spec stay the same
@@ -94,6 +99,22 @@ function filterOptions(by: FilterBy, pieces: Piece[]): { value: string; label: s
     .filter((n) => pieces.some((p) => p.price <= n) && pieces.some((p) => p.price > n))
     .map((n) => ({ value: String(n), label: `Under ${gbp(n)}` }));
 }
+// Sort orders. null keys go last, ties keep the shops' order
+const SORTS: Record<SortBy, { label: string; key: ((p: Piece) => number | null) | null }> = {
+  featured: { label: "Featured", key: null },
+  price_low: { label: "Price, low to high", key: (p) => p.price },
+  price_high: { label: "Price, high to low", key: (p) => -p.price },
+  delivery: { label: "Fastest UK delivery", key: (p) => p.ukDelivery?.maxDays ?? null },
+  saving: { label: "Biggest saving", key: (p) => (p.wasPrice && p.wasPrice > p.price ? p.price - p.wasPrice : null) },
+  rating: { label: "Top rated", key: (p) => (p.rating ? -p.rating.value : null) },
+};
+
+// The page's Sort starts at its by prop until the shopper picks another. No Sort, no sorting
+const sortOf = (spec: Spec, facets: Facets) => {
+  const el = Object.values(spec.elements).find((e) => e.type === "Sort");
+  return el ? ((facets.sort ?? el.props.by) as SortBy) : null;
+};
+
 const Render = createContext<Ctx | null>(null);
 const SectionSlot = createContext<SlotName | null>(null);
 const Layout = createContext<{ size: "small" | "medium" | "large"; list: boolean }>({ size: "medium", list: false });
@@ -111,14 +132,30 @@ function Node({ id }: { id: string }) {
   return Component ? <Component el={el} /> : null;
 }
 
-function Children({ el }: { el: SpecElement }) {
+function Children({ el, ids = kids(el) }: { el: SpecElement; ids?: string[] }) {
   return (
     <>
-      {kids(el).map((k) => (
+      {ids.map((k) => (
         <Node key={k} id={k} />
       ))}
     </>
   );
+}
+
+function sorted<T>(items: T[], pieceOf: (t: T) => Piece | undefined, by: SortBy | null): T[] {
+  const key = SORTS[by ?? "featured"]?.key;
+  if (!key) return items;
+  const value = (t: T) => {
+    const p = pieceOf(t);
+    return (p ? key(p) : null) ?? Infinity;
+  };
+  return [...items].sort((a, b) => value(a) - value(b));
+}
+
+// A container's cards in the order the page's Sort asks for
+function useSorted(el: SpecElement) {
+  const { spec, group, facets } = useRender();
+  return sorted(kids(el), (k) => group.pieces[String(spec.elements[k]?.props.id)], sortOf(spec, facets));
 }
 
 type Part = (p: { el: SpecElement }) => React.ReactNode;
@@ -175,7 +212,7 @@ const registry: Record<string, Part> = {
     return (
       <Layout.Provider value={{ size, list: false }}>
         <div style={{ "--card": cardWidth[size] } as React.CSSProperties} className="grid grid-cols-[repeat(auto-fill,minmax(min(var(--card),100%),1fr))] gap-x-5 gap-y-10">
-          <Children el={el} />
+          <Children el={el} ids={useSorted(el)} />
         </div>
       </Layout.Provider>
     );
@@ -185,19 +222,20 @@ const registry: Record<string, Part> = {
     return (
       <Layout.Provider value={{ size, list: true }}>
         <div style={{ "--photo": listPhoto[size] } as React.CSSProperties} className="flex flex-col gap-4">
-          <Children el={el} />
+          <Children el={el} ids={useSorted(el)} />
         </div>
       </Layout.Provider>
     );
   },
   Carousel: ({ el }) => {
     const size = (el.props.size as SizeProp) ?? "medium";
+    const ids = useSorted(el);
     return (
       <Layout.Provider value={{ size, list: false }}>
         {/* The viewport grows by the picked outline so the carousel does not clip it */}
         <Carousel opts={{ align: "start" }} className="w-full [&>[data-slot=carousel-content]]:-m-2 [&>[data-slot=carousel-content]]:p-2">
           <CarouselContent className="-ml-4">
-            {kids(el).map((k) => (
+            {ids.map((k) => (
               <CarouselItem key={k} style={{ flexBasis: `min(${cardWidth[size]}, 85%)` }} className="pl-4 empty:hidden has-[[data-photo=failed]]:hidden">
                 <Node id={k} />
               </CarouselItem>
@@ -213,13 +251,18 @@ const registry: Record<string, Part> = {
     );
   },
   ProductCard: ({ el }) => {
-    const { group, spec, facets, onOpen, onPick } = useRender();
+    const { group, spec, facets, onOpen, onPick, onSave } = useRender();
     const slot = useContext(SectionSlot);
     const { list } = useContext(Layout);
     const piece = group.pieces[String(el.props.id)];
     // Items without a photo or outside the shopper's filters are not shown. A card whose photo fails to load hides itself (:has below)
     if (!shows(piece, facets)) return null;
-    const picked = slot ? pickFor(spec, group, slot) === piece.id : false;
+    const picked = slot ? pickFor(spec, group, slot, sortOf(spec, facets)) === piece.id : false;
+    // Was price and colours sit by the price, where shops put them
+    const byPrice = kids(el).filter((k) => ["WasPrice", "Colours"].includes(spec.elements[k]?.type ?? ""));
+    const rest = kids(el).filter((k) => !byPrice.includes(k));
+    // A page with a Saved list puts a heart on every photo
+    const saved = !!group.saved?.includes(piece.id);
     const facts = (
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-sm text-muted-foreground">{piece.merchant}</span>
@@ -232,6 +275,7 @@ const registry: Record<string, Part> = {
             from {piece.converted.currency} {piece.converted.amount.toFixed(2)}
           </span>
         )}
+        <Children el={el} ids={byPrice} />
         {piece.source === "mock" && (
           <Badge variant="outline" className="self-start">
             Sample
@@ -241,7 +285,7 @@ const registry: Record<string, Part> = {
     );
     const parts = (
       <div className="flex flex-col gap-2">
-        <Children el={el} />
+        <Children el={el} ids={rest} />
         {slot && hasOutfitTotal(spec) && (
           <Button variant={picked ? "secondary" : "outline"} disabled={picked} onClick={() => onPick(slot, piece.id)}>
             {picked ? "In your outfit" : "Use in outfit"}
@@ -250,9 +294,23 @@ const registry: Record<string, Part> = {
       </div>
     );
     const photo = (
-      <button type="button" onClick={() => onOpen(piece)} aria-label={`Details for ${piece.title}`} className="group cursor-pointer">
-        <Photo piece={piece} className="transition-opacity group-hover:opacity-90" />
-      </button>
+      <div className="relative">
+        <button type="button" onClick={() => onOpen(piece)} aria-label={`Details for ${piece.title}`} className="group w-full cursor-pointer">
+          <Photo piece={piece} className="transition-opacity group-hover:opacity-90" />
+        </button>
+        {hasType(spec, "Saved") && (
+          <Button
+            variant="outline"
+            size="icon"
+            aria-pressed={saved}
+            aria-label={saved ? `Remove ${piece.title} from saved` : `Save ${piece.title} for later`}
+            onClick={() => onSave(piece.id)}
+            className="absolute top-2 right-2 rounded-full bg-background/90 hover:bg-background"
+          >
+            <HeartIcon className={cn(saved && "fill-primary text-primary")} />
+          </Button>
+        )}
+      </div>
     );
     if (list)
       return (
@@ -307,6 +365,36 @@ const registry: Record<string, Part> = {
   Rating: ({ el }) => {
     const piece = useRender().group.pieces[String(el.props.id)];
     return piece ? <Rating piece={piece} /> : null;
+  },
+  WasPrice: ({ el }) => {
+    const piece = useRender().group.pieces[String(el.props.id)];
+    if (!piece?.wasPrice || piece.wasPrice <= piece.price) return null;
+    return (
+      <p className="flex flex-wrap items-baseline gap-x-2 text-sm">
+        <span className="sr-only">Was</span>
+        <s className="text-muted-foreground">{gbp(piece.wasPrice)}</s>
+        <span className="font-semibold">{Math.round((1 - piece.price / piece.wasPrice) * 100)}% off</span>
+      </p>
+    );
+  },
+  Colours: ({ el }) => {
+    const colours = useRender().group.pieces[String(el.props.id)]?.colours ?? [];
+    if (!colours.length) return null;
+    return (
+      <p className="text-sm text-muted-foreground">
+        Also in <span className="capitalize">{colours.slice(0, 3).join(", ")}</span>
+        {colours.length > 3 && ` and ${colours.length - 3} more`}
+      </p>
+    );
+  },
+  SizeButtons: ({ el }) => {
+    const { group, onSize } = useRender();
+    const piece = group.pieces[String(el.props.id)];
+    return piece ? <SizeButtons piece={piece} size={group.sizes[piece.id] ?? null} onSize={(s) => onSize(piece.id, s)} compact /> : null;
+  },
+  SizeGuide: ({ el }) => {
+    const piece = useRender().group.pieces[String(el.props.id)];
+    return piece ? <SizeGuide piece={piece} /> : null;
   },
   Heading: ({ el }) =>
     el.props.level === "h3" ? (
@@ -443,6 +531,140 @@ const registry: Record<string, Part> = {
       </div>
     );
   },
+  Sort: () => {
+    const { spec, group, facets, setFacet } = useRender();
+    const pieces = allCards(spec).map((id) => group.pieces[id]).filter(Boolean);
+    const by = sortOf(spec, facets) ?? "featured";
+    const label = useId();
+    // Only orders the items on the page have data for
+    const options = (Object.keys(SORTS) as SortBy[]).filter((s) => !SORTS[s].key || s === by || pieces.some((p) => SORTS[s].key!(p) !== null));
+    return (
+      <div data-filters className="flex items-center gap-3">
+        <span id={label} className="font-heading text-sm font-semibold">
+          Sort by
+        </span>
+        <Select value={by} onValueChange={(v) => setFacet("sort", v)}>
+          <SelectTrigger aria-labelledby={label} size="sm" className="min-w-44 rounded-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((s) => (
+              <SelectItem key={s} value={s}>
+                {SORTS[s].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  },
+  TrustBar: () => {
+    const { spec, group } = useRender();
+    const pieces = allCards(spec).map((id) => group.pieces[id]).filter(Boolean);
+    const shops = [...new Map(pieces.map((p) => [p.merchant, p])).values()];
+    if (!shops.length) return null;
+    const n = shops.length;
+    const plural = (k: number) => `${k} ${k === 1 ? "shop" : "shops"}`;
+    const free = shops.filter((p) => p.ukDelivery?.price === 0 || p.ukDelivery?.freeOver != null).length;
+    const over = shops.map((p) => (p.ukDelivery?.price === 0 ? null : p.ukDelivery?.freeOver)).filter((x): x is number => x != null);
+    const days = shops.map((p) => p.returns?.days).filter((x): x is number => x != null);
+    const checked = pieces.filter((p) => p.source === "live").map((p) => Date.parse(p.fetchedAt)).filter(Number.isFinite);
+    const items = [
+      free
+        ? {
+            icon: TruckIcon,
+            title: free === n ? "Free UK delivery at every shop" : `Free UK delivery at ${free} of ${plural(n)}`,
+            note: over.length ? `Some over a minimum spend, from ${gbp(Math.min(...over))}` : "On every order",
+          }
+        : { icon: TruckIcon, title: "UK delivery", note: "Cost and time on every item" },
+      days.length
+        ? {
+            icon: Undo2Icon,
+            title: `${Math.min(...days) === Math.max(...days) ? Math.min(...days) : `${Math.min(...days)} to ${Math.max(...days)}`} day returns`,
+            note: days.length === n ? "At every shop" : `Unknown at ${plural(n - days.length)}, check there`,
+          }
+        : { icon: Undo2Icon, title: "Returns unknown", note: "Check each shop's policy" },
+      { icon: ShoppingBagIcon, title: `One bag for ${plural(n)}`, note: "Split into one order per shop" },
+      ...(checked.length
+        ? [
+            {
+              icon: ClockIcon,
+              title: `Prices checked at ${new Date(Math.min(...checked)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`,
+              note: "Live from each shop",
+            },
+          ]
+        : []),
+    ];
+    return (
+      <ul aria-label="Shopping with Fluid" className="grid grid-cols-1 gap-x-6 gap-y-4 border-y border-border py-4 @md/sheet:grid-cols-2 @4xl/sheet:grid-cols-4">
+        {items.map(({ icon: Icon, title, note }) => (
+          <li key={title} className="flex gap-3">
+            <Icon aria-hidden className="mt-0.5 size-5 shrink-0" />
+            <span className="flex flex-col">
+              <span className="font-heading font-semibold">{title}</span>
+              <span className="text-sm text-muted-foreground">{note}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  },
+  DeliveryProgress: () => {
+    const { spec, group, bag } = useRender();
+    const pieces = allCards(spec).map((id) => group.pieces[id]).filter(Boolean);
+    // Shops with a spend threshold for free UK delivery, from the shop's own policy
+    const shops = [...new Map(pieces.filter((p) => p.ukDelivery?.freeOver != null && p.ukDelivery.price !== 0).map((p) => [p.merchant, p.ukDelivery!.freeOver!])).entries()];
+    if (!shops.length) return null;
+    const spent = (m: string) => bag.filter((l) => l.piece.merchant === m).reduce((sum, l) => sum + l.piece.price, 0);
+    const inBag = shops.filter(([m]) => spent(m) > 0);
+    const rest = shops.filter(([m]) => !spent(m));
+    return (
+      <div className="flex flex-col gap-3">
+        <h3 className="font-heading font-bold">Free UK delivery</h3>
+        {inBag.map(([m, over]) => {
+          const left = Math.round((over - spent(m)) * 100) / 100;
+          return (
+            <div key={m} className="flex flex-col gap-1.5 text-sm">
+              <p>{left > 0 ? `Spend ${gbp(left)} more at ${m} for free UK delivery` : `Free UK delivery at ${m}`}</p>
+              <Progress value={Math.min(100, (spent(m) / over) * 100)} aria-label={`${m}, ${gbp(spent(m))} of ${gbp(over)}`} />
+            </div>
+          );
+        })}
+        {rest.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            {inBag.length ? "Also free" : "Free"} over {rest.slice(0, 4).map(([m, over]) => `${gbp(over)} at ${m}`).join(", ")}
+            {rest.length > 4 && ` and ${rest.length - 4} more shops`}.{!inBag.length && " Add pieces to your bag to see how close you are."}
+          </p>
+        )}
+      </div>
+    );
+  },
+  Saved: () => {
+    const { group, onOpen } = useRender();
+    const saved = (group.saved ?? []).map((id) => group.pieces[id]).filter(Boolean);
+    return (
+      <section aria-label="Saved for later" className="flex flex-col gap-3">
+        <h3 className="font-heading font-bold">
+          Saved for later <span className="font-sans text-sm font-normal text-muted-foreground">{saved.length}</span>
+        </h3>
+        {saved.length ? (
+          <ul className="flex gap-4 overflow-x-auto pb-1">
+            {saved.map((p) => (
+              <li key={p.id} className="w-28 shrink-0">
+                <button type="button" onClick={() => onOpen(p)} className="flex w-full cursor-pointer flex-col gap-1 text-left">
+                  <Photo piece={p} />
+                  <span className="line-clamp-2 text-sm leading-snug">{p.title}</span>
+                  <span className="text-sm font-semibold">{gbp(p.price)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">Tap the heart on an item to keep it here.</p>
+        )}
+      </section>
+    );
+  },
 };
 
 const labelText: Record<LabelKind, string> = {
@@ -451,6 +673,7 @@ const labelText: Record<LabelKind, string> = {
   free_delivery: "Free UK delivery",
   few_left: "Few left",
   long_returns: "Easy returns",
+  sale: "Sale",
 };
 
 const allCards = (spec: Spec) =>
@@ -458,7 +681,8 @@ const allCards = (spec: Spec) =>
     .filter((e) => e.type === "ProductCard")
     .map((e) => String(e.props.id));
 
-const hasOutfitTotal = (spec: Spec) => Object.values(spec.elements).some((e) => e.type === "OutfitTotal");
+const hasType = (spec: Spec, type: string) => Object.values(spec.elements).some((e) => e.type === type);
+const hasOutfitTotal = (spec: Spec) => hasType(spec, "OutfitTotal");
 
 // Cards under each category section, in order, reaching through containers
 function sectionCards(spec: Spec) {
@@ -479,19 +703,22 @@ function sectionCards(spec: Spec) {
   return out;
 }
 
-function pickFor(spec: Spec, group: Group, slot: SlotName) {
-  const ids = sectionCards(spec).find((s) => s.slot === slot)?.ids ?? [];
+// The shopper's pick for a category, else the first piece shown
+function pickFor(spec: Spec, group: Group, slot: SlotName, by: SortBy | null) {
+  const ids = sorted(sectionCards(spec).find((s) => s.slot === slot)?.ids ?? [], (id) => group.pieces[id], by);
   const chosen = group.picks[slot];
   return chosen && ids.includes(chosen) ? chosen : ids[0];
 }
 
 // The piece picked in each category, in page order
-const outfitPieces = (spec: Spec, group: Group) => sectionCards(spec).map(({ slot }) => group.pieces[pickFor(spec, group, slot) ?? ""]).filter(Boolean);
+// The piece picked in each category, the default pick follows the page's sort order
+const outfitPieces = (spec: Spec, group: Group, by: SortBy | null) =>
+  sectionCards(spec).map(({ slot }) => group.pieces[pickFor(spec, group, slot, by) ?? ""]).filter(Boolean);
 
 function OutfitTotal() {
-  const { spec, group, onAdd } = useRender();
+  const { spec, group, facets, onAdd } = useRender();
   const [error, setError] = useState("");
-  const lines = outfitPieces(spec, group).map((piece) => ({ piece, size: group.sizes[piece.id] ?? null }));
+  const lines = outfitPieces(spec, group, sortOf(spec, facets)).map((piece) => ({ piece, size: group.sizes[piece.id] ?? null }));
   if (!lines.length) return null;
   const shops = byMerchant(lines);
   const pieceTotal = shops.reduce((sum, s) => sum + s.subtotal, 0);
@@ -587,7 +814,9 @@ export function GroupView({
                 ))}
               </ul>
             )}
-            {spec && groupKind(group) === "look" && <OutfitPicture spec={spec} group={group} image={outfitImage} composing={composing} onImage={onOutfitImage} onOpen={actions.onOpen} />}
+            {spec && groupKind(group) === "look" && (
+              <OutfitPicture spec={spec} group={group} by={sortOf(spec, facets)} image={outfitImage} composing={composing} onImage={onOutfitImage} onOpen={actions.onOpen} />
+            )}
             <Activity group={group} composing={composing} key={last?.prompt} />
           </header>
 
@@ -614,6 +843,7 @@ export function GroupView({
 function OutfitPicture({
   spec,
   group,
+  by,
   image,
   composing,
   onImage,
@@ -621,6 +851,7 @@ function OutfitPicture({
 }: {
   spec: Spec;
   group: Group;
+  by: SortBy | null;
   image: OutfitImage | null;
   composing: boolean;
   onImage: (image: OutfitImage) => void;
@@ -628,7 +859,7 @@ function OutfitPicture({
 }) {
   const supabase = useSupabase();
   const [state, setState] = useState<"idle" | "working" | "error">("idle");
-  const pieces = outfitPieces(spec, group);
+  const pieces = outfitPieces(spec, group, by);
   if (!pieces.length) return null;
   const key = pieces.map((p) => p.id).join("|");
   const changed = !!image && image.key !== key;

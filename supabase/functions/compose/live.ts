@@ -260,7 +260,7 @@ export function searchProduct(hit: Hit, shop: string): PageProduct | null {
     const img = hit.images?.[0];
     if (price >= 3) {
       const image = typeof img === "string" ? img : img?.url ?? null;
-      const none = { brand: null, description: null, details: [], rating: null, colours: [] };
+      const none = { brand: null, description: null, details: [], rating: null, colours: [], wasPrice: null };
       return { ...none, title, site: null, image, images: image ? [image] : [], price, currency: "GBP", sizes: [] };
     }
   }
@@ -295,6 +295,7 @@ function pageToPiece(f: Extract<Found, { kind: "page" | "search" }>, ref: Ref, s
     colour,
     price: Math.round(p.price * rate * 100) / 100,
     converted: p.currency === "GBP" ? null : { amount: p.price, currency: p.currency },
+    wasPrice: p.wasPrice ? Math.round(p.wasPrice * rate * 100) / 100 : null,
     sizes: p.sizes,
     ukDelivery: shop.ukDelivery,
     returns: shop.returns,
@@ -533,7 +534,7 @@ type ShopifyProduct = {
   featured_image?: string | null;
   images?: string[];
   options?: { name: string; values: string[] }[];
-  variants?: { available: boolean; options?: string[] }[];
+  variants?: { available: boolean; options?: string[]; price?: number; compare_at_price?: number | null }[];
 };
 
 // Tags like "material:Cotton" or "Fit_Relaxed" state facts, most other tags are shop filters
@@ -564,6 +565,8 @@ function toPiece(p: ShopifyProduct, ref: Ref, shop: Shop, fetchedAt: string): Pi
   const images = [...new Set([p.featured_image, ...(p.images ?? [])].map(imageUrl).filter((u): u is string => !!u))];
   const title = withBrand(p.title, p.vendor ?? null, shop.name);
   const colour = coloursIn(title)[0] ?? null;
+  // The compare at price of a variant sold at today's price, only when the shop marks it down
+  const was = (p.variants ?? []).find((v) => v.price === p.price && (v.compare_at_price ?? 0) > p.price)?.compare_at_price;
   return {
     id: `p_${ref.host}_${ref.handle}`.replace(/[^\w-]/g, "_"),
     title,
@@ -575,6 +578,7 @@ function toPiece(p: ShopifyProduct, ref: Ref, shop: Shop, fetchedAt: string): Pi
     colour,
     price: Math.round(amount * rate * 100) / 100,
     converted: shop.currency === "GBP" ? null : { amount, currency: shop.currency! },
+    wasPrice: was ? Math.round((was / 100) * rate * 100) / 100 : null,
     sizes,
     ukDelivery: shop.ukDelivery,
     returns: shop.returns,

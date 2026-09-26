@@ -59,7 +59,8 @@ function describeLook(name: string, g: Group) {
   const els = Object.values(spec.elements);
   const root = spec.elements[spec.root];
   const containers = [...new Set(els.filter((e) => ["Grid", "Carousel", "List"].includes(e.type)).map((e) => `${e.props.size ?? "medium"} ${e.type.toLowerCase()}`))];
-  const parts = [...new Set(els.filter((e) => ["SizePicker", "AddToBag", "Delivery", "Returns", "StockBadge"].includes(e.type)).map((e) => e.type))];
+  const PARTS = ["SizePicker", "SizeButtons", "SizeGuide", "AddToBag", "Delivery", "Returns", "StockBadge", "WasPrice", "Colours", "Gallery", "Description", "Rating"];
+  const parts = [...new Set(els.filter((e) => PARTS.includes(e.type)).map((e) => e.type))];
   return `${name}: ${root?.props.theme ?? "studio"} theme, ${root?.props.density ?? "roomy"} spacing, items in ${containers.join(" and ") || "a grid"}, each item shows ${parts.join(", ") || "only photo, name and price"}${els.some((e) => e.type === "OutfitTotal") ? ", outfit total at the end" : ""}. Made for "${g.entries[0]?.prompt ?? g.name}"`;
 }
 
@@ -302,6 +303,8 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
             onRemoveFilter={removeFilter}
             outfitImage={outfits[front.id] ?? null}
             onOutfitImage={(image) => setOutfits((o) => ({ ...o, [front.id]: image }))}
+            onSave={(id) => patchActive((g) => ({ ...g, saved: g.saved?.includes(id) ? g.saved.filter((x) => x !== id) : [...(g.saved ?? []), id] }))}
+            bag={bags[front.id] ?? []}
             composer={<Composer placeholder="Refine it: sneakers for shoes, carousel, add buy buttons" composing={composing} onPrompt={(p) => run(p)} />}
           />
         ) : (
