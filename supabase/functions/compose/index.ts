@@ -264,6 +264,9 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
 // Shop words for the same kind of item
 const SAME_KIND: Record<string, string[]> = { trainer: ["sneaker"], sneaker: ["trainer"], "t-shirt": ["tee"], tee: ["t-shirt"], trouser: ["chino"], pant: ["trouser"] };
 
+// Lower case words without a plural s
+const words = (s: string) => s.toLowerCase().split(/[^a-z-]+/).map((w) => w.replace(/s$/, "")).filter(Boolean);
+
 async function search(plan: Plan, intent: Intent, signal: AbortSignal, note: (t: string) => void): Promise<Piece[]> {
   const queries = Object.fromEntries(plan.search.map(({ slot, query }) => {
     const q = intent.colour && !query.toLowerCase().includes(intent.colour) ? `${intent.colour} ${query}` : query;
@@ -289,13 +292,18 @@ async function search(plan: Plan, intent: Intent, signal: AbortSignal, note: (t:
       note(`Live search found ${count(found.length, "piece")} for ${slot}, adding sample pieces`);
       // Only samples of the same kind of item, the query's last word, so chelsea boots never fill in with sneakers.
       // Live pieces and no matching sample means no fill in. Nothing live at all falls back to every sample
-      const kind = (queries[slot] ?? "").toLowerCase().split(/[^a-z-]+/).filter(Boolean).at(-1)?.replace(/s$/, "") ?? "";
+      const q = words(queries[slot] ?? "");
+      const kind = q.at(-1) ?? "";
       const kinds = [kind, ...(SAME_KIND[kind] ?? [])];
       const all = mockPieces(slot);
-      const matching = all.filter((p) => kinds.some((k) => k && p.title.toLowerCase().includes(k)));
+      // Samples sharing more words with the query go first, so a bomber jacket search starts with bombers
+      const hits = (p: Piece) => words(p.title).filter((w) => q.includes(w)).length;
+      const matching = all.filter((p) => kinds.some((k) => k && p.title.toLowerCase().includes(k))).sort((a, b) => hits(b) - hits(a));
       const mock = matching.length || found.length ? matching : all;
       const fitting = applyFilters(mock, intent);
-      found = [...found, ...(fitting.length || found.length ? fitting : mock).slice(0, min - found.length)];
+      // Nothing fits every filter: the kind still shows, but never for the other gender
+      const fill = fitting.length || found.length ? fitting : applyFilters(mock, { ...intent, colour: null, budget: null, size: null });
+      found = [...found, ...fill.slice(0, min - found.length)];
     }
     pieces.push(...found.slice(0, cap));
   }
