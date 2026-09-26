@@ -14,7 +14,8 @@ Built for the [Grok Bot Commerce London Hackathon](https://gb-ecommerce-hackatho
 - **Talk to the page.** Change the items ("sneakers for shoes", "only black") or the page ("show each category as a carousel", "add a buy button to each item", "dark mode", "only tops"). Page requests are Jev edits on the existing tree and never reload the items.
 - **Storefronts.** How a group looks (grid, carousel or list, buy buttons, details, theme, spacing) is a storefront, saved as a JSON template without its products. Use it for new searches and the products found load straight into it, or use it on the open group.
 - **Buying details.** Price in GBP, sizes, stock, UK delivery cost and time, and returns for every piece, read live from the shop. Unknown stays unknown.
-- **Phone.** Installable PWA. Camera capture and outfit previews come next.
+- **See the outfit.** "See this outfit" makes a shop the look photo of the picked pieces with the Grok image model, from their product photos. A tag on each piece shows shop, name and price and opens its details. The photo is labelled as AI and offers a new one when the outfit changes.
+- **Phone.** Installable PWA. Camera capture comes next.
 
 ## How a request runs
 
@@ -82,11 +83,12 @@ insert into public.invite_codes (code, uses_left) values ('FRIENDS', 10);
 AI keys live in the root `.env` (gitignored) and in Edge Function secrets, never in app env files: `XAI_API_KEY`, `TYPESAFE_API_KEY`, `TAVILY_API_KEY`.
 
 ```sh
-just compose-dev      # run the compose function locally on :8000
-just compose-deploy   # push secrets from .env and deploy the function
+just compose-dev        # run the compose function locally on :8000
+just outfit-image-dev   # run the outfit-image function locally on :8001
+just compose-deploy     # push secrets from .env and deploy both functions
 ```
 
-For local work set `VITE_COMPOSE_URL=http://localhost:8000` in `apps/web/.env.development.local`. `/preview` renders the app without sign in, in dev only.
+For local work set `VITE_COMPOSE_URL=http://localhost:8000` and `VITE_OUTFIT_IMAGE_URL=http://localhost:8001` in `apps/web/.env.development.local`. `/preview` renders the app without sign in, in dev only.
 
 ### Phone
 

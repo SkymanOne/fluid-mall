@@ -20,6 +20,7 @@ Demo path, in priority order. Build and keep this working before anything else:
 
 - **Client** (`apps/web`) is one React Router SPA, installable as a PWA for phones. It streams from the `compose` Edge Function, renders the UI spec it gets back, and holds only the Supabase URL and publishable key.
 - **Edge Function** `compose` (`supabase/functions/compose`) runs the intent pipeline below. All AI keys live here.
+- **Edge Function** `outfit-image` (`supabase/functions/outfit-image`) pictures an outfit's picked pieces as a shop the look photo with the Grok image model, using each piece's product photo as a reference. A Grok vision model then places a tag dot on each piece, with fixed spots per category as the fallback. Prompts are built from piece facts only (title, colour, category, brand).
 - **Browser storage** holds groups, bags, orders and saved storefronts for now. Postgres and Storage take over when they need to follow the user across devices.
 
 ### Intent driven shopping

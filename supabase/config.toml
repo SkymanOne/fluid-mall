@@ -417,3 +417,7 @@ enabled = true
 [functions.compose]
 # The function checks the caller's JWT itself so CORS preflight gets through
 verify_jwt = false
+
+[functions.outfit-image]
+# Checks the caller's JWT itself, like compose
+verify_jwt = false

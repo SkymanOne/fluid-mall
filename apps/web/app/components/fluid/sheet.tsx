@@ -1,4 +1,4 @@
-import { ChevronDownIcon, InfoIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, InfoIcon, SparklesIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { createContext, useContext, useEffect, useState } from "react";
 import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Badge } from "~/components/ui/badge";
@@ -12,8 +12,10 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
+import { outfitImage } from "~/lib/agent";
 import { byMerchant, deliveryLine, freeDelivery, gbp, returnsLine, slotLabel, slotOrder } from "~/lib/format";
-import type { Group } from "~/lib/store";
+import type { Group, OutfitImage } from "~/lib/store";
+import { useSupabase } from "~/lib/supabase";
 import type { LabelKind, Piece, SlotName, Spec, SpecElement, ThemeName } from "~/lib/types";
 import { cn } from "~/lib/utils";
 import { AddButton, Description, Figure, Gallery, Photo, Rating, SizeSelect, Stock } from "./piece";
@@ -480,13 +482,13 @@ function pickFor(spec: Spec, group: Group, slot: SlotName) {
   return chosen && ids.includes(chosen) ? chosen : ids[0];
 }
 
+// The piece picked in each category, in page order
+const outfitPieces = (spec: Spec, group: Group) => sectionCards(spec).map(({ slot }) => group.pieces[pickFor(spec, group, slot) ?? ""]).filter(Boolean);
+
 function OutfitTotal() {
   const { spec, group, onAdd } = useRender();
   const [error, setError] = useState("");
-  const lines = sectionCards(spec)
-    .map(({ slot }) => group.pieces[pickFor(spec, group, slot) ?? ""])
-    .filter(Boolean)
-    .map((piece) => ({ piece, size: group.sizes[piece.id] ?? null }));
+  const lines = outfitPieces(spec, group).map((piece) => ({ piece, size: group.sizes[piece.id] ?? null }));
   if (!lines.length) return null;
   const shops = byMerchant(lines);
   const pieceTotal = shops.reduce((sum, s) => sum + s.subtotal, 0);
@@ -526,8 +528,18 @@ export function GroupView({
   filters,
   composer,
   onTheme,
+  outfitImage,
+  onOutfitImage,
   ...actions
-}: { group: Group; composing: boolean; filters: Filter[]; composer: React.ReactNode; onTheme: (t: ThemeName) => void } & GroupActions) {
+}: {
+  group: Group;
+  composing: boolean;
+  filters: Filter[];
+  composer: React.ReactNode;
+  onTheme: (t: ThemeName) => void;
+  outfitImage: OutfitImage | null;
+  onOutfitImage: (image: OutfitImage) => void;
+} & GroupActions) {
   const spec = group.spec;
   const root = spec?.elements[spec.root];
   const cards = Object.values(spec?.elements ?? {}).filter((e) => e.type === "ProductCard");
@@ -572,6 +584,7 @@ export function GroupView({
                 ))}
               </ul>
             )}
+            {spec && groupKind(group) === "look" && <OutfitPicture spec={spec} group={group} image={outfitImage} composing={composing} onImage={onOutfitImage} onOpen={actions.onOpen} />}
             <Activity group={group} composing={composing} key={last?.prompt} />
           </header>
 
@@ -589,6 +602,111 @@ export function GroupView({
         <div className="w-full max-w-2xl">{composer}</div>
       </div>
     </div>
+  );
+}
+
+// A shop the look picture of the picked outfit, made from the pieces' product photos when the shopper asks.
+// Each piece gets a tag on the photo that opens its details. The picture remembers which pieces it shows,
+// so a changed outfit keeps the old picture and offers a new one
+function OutfitPicture({
+  spec,
+  group,
+  image,
+  composing,
+  onImage,
+  onOpen,
+}: {
+  spec: Spec;
+  group: Group;
+  image: OutfitImage | null;
+  composing: boolean;
+  onImage: (image: OutfitImage) => void;
+  onOpen: (piece: Piece) => void;
+}) {
+  const supabase = useSupabase();
+  const [state, setState] = useState<"idle" | "working" | "error">("idle");
+  const pieces = outfitPieces(spec, group);
+  if (!pieces.length) return null;
+  const key = pieces.map((p) => p.id).join("|");
+  const changed = !!image && image.key !== key;
+  const make = async () => {
+    setState("working");
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
+      const { src, spots } = await outfitImage(token, pieces, group.intent?.gender ?? null);
+      const id = (slot: SlotName) => pieces.find((p) => p.slot === slot)?.id ?? "";
+      onImage({ src, key, spots: spots.map((s) => ({ id: id(s.slot), x: s.x, y: s.y })).filter((s) => s.id) });
+      setState("idle");
+    } catch (err) {
+      console.error(err);
+      setState("error");
+    }
+  };
+  const working = state === "working";
+
+  if (!image && state === "idle")
+    return (
+      <Button variant="outline" className="self-start" disabled={composing} onClick={make}>
+        <SparklesIcon data-icon="inline-start" />
+        See this outfit
+      </Button>
+    );
+  return (
+    <figure className="flex flex-col gap-3 @xl/sheet:flex-row @xl/sheet:items-end">
+      <div className="relative aspect-[3/4] w-full max-w-md bg-muted" aria-busy={working}>
+        {working ? (
+          <>
+            <Skeleton className="absolute inset-0 rounded-none" />
+            <span className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <Spinner />
+              Picturing your outfit, this takes about half a minute
+            </span>
+          </>
+        ) : image ? (
+          <>
+            <img src={image.src} alt="AI image of your outfit" className="absolute inset-0 size-full object-cover" />
+            <p className="absolute top-3 left-3 max-w-[60%] text-xs text-photo-ink">AI image of your outfit. Real pieces may differ slightly.</p>
+            {image.spots.map((s, i) => {
+              const piece = group.pieces[s.id];
+              if (!piece) return null;
+              // Tags alternate sides so they sit beside their piece, unless that side has no room
+              const left = i % 2 === 0 ? s.x > 0.4 : s.x > 0.6;
+              return (
+                <div
+                  key={s.id}
+                  style={{ left: `${s.x * 100}%`, top: `${s.y * 100}%` }}
+                  className={cn("absolute flex -translate-y-1/2 items-center", left ? "-translate-x-[calc(100%-0.4375rem)] flex-row-reverse" : "-translate-x-[0.4375rem]")}
+                >
+                  <span aria-hidden className="size-3.5 shrink-0 rounded-full border-2 border-photo-tag-foreground shadow-sm" />
+                  <span aria-hidden className="h-px w-5 bg-photo-tag-foreground shadow-sm @md/sheet:w-8" />
+                  <button
+                    type="button"
+                    onClick={() => onOpen(piece)}
+                    className="flex w-32 cursor-pointer flex-col gap-0.5 bg-photo-tag px-2.5 py-2 text-left text-photo-tag-foreground transition-opacity hover:opacity-85 @md/sheet:w-40"
+                  >
+                    <span className="truncate text-[0.625rem] font-medium tracking-[0.14em] uppercase opacity-70">{piece.merchant}</span>
+                    <span className="line-clamp-2 text-xs leading-snug">{piece.title}</span>
+                    <span className="font-numeral text-2xl leading-none font-bold">{gbp(piece.price)}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <span className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-muted-foreground">No picture yet</span>
+        )}
+      </div>
+      <figcaption aria-live="polite" className="flex max-w-xs flex-col items-start gap-2 text-sm">
+        {state === "error" && <span className="font-semibold">Could not picture this outfit. Try again in a moment.</span>}
+        {changed && !working && state !== "error" && <span className="font-semibold">Your outfit changed since this picture.</span>}
+        {!working && (
+          <Button variant={changed || state === "error" ? "default" : "outline"} size="sm" disabled={composing} onClick={make}>
+            <SparklesIcon data-icon="inline-start" />
+            {state === "error" ? "Try again" : "Regenerate"}
+          </Button>
+        )}
+      </figcaption>
+    </figure>
   );
 }
 

@@ -7,7 +7,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from "~/com
 import { compose } from "~/lib/agent";
 import { fromTemplate, toTemplate } from "~/lib/template";
 import { gbp, sizeFor } from "~/lib/format";
-import { loadGroups, loadJson, loadPrefs, loadStorefronts, storeGroups, storeJson, storePrefs, storeStorefronts, type Group, type Prefs, type Storefront } from "~/lib/store";
+import { loadGroups, loadJson, loadPrefs, loadStorefronts, storeGroups, storeJson, storePrefs, storeStorefronts, type Group, type OutfitImage, type Prefs, type Storefront } from "~/lib/store";
 import { useSupabase } from "~/lib/supabase";
 import type { ComposeEvent, Intent, Piece, Spec, ThemeName } from "~/lib/types";
 import { Bags, type BagLine, type Order } from "./bag";
@@ -90,6 +90,9 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
   const [composing, setComposing] = useState(false);
   const [bags, setBags] = useState<Record<string, BagLine[]>>(() => loadJson(user, "bags", {}));
   const [orders, setOrders] = useState<Record<string, Order[]>>(() => loadJson(user, "orders", {}));
+  // Kept apart from groups so a picture that lands while the agent works on the group is not overwritten.
+  // ponytail: 768px JPEG data URLs in localStorage, about 40 KB each. Move to private Storage when groups move to Supabase
+  const [outfits, setOutfits] = useState<Record<string, OutfitImage>>(() => loadJson(user, "outfits", {}));
   const [panel, setPanel] = useState<{ kind: "bag" } | { kind: "piece"; piece: Piece } | { kind: "customise" } | null>(null);
   const [lookName, setLookName] = useState<Record<string, string>>({});
   const counter = useRef(Math.max(0, ...groups.map((g) => g.number)));
@@ -105,6 +108,7 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
   useEffect(() => storeJson(user, "bags", bags), [user, bags]);
   useEffect(() => storeJson(user, "orders", orders), [user, orders]);
   useEffect(() => storeJson(user, "active", activeId), [user, activeId]);
+  useEffect(() => storeJson(user, "outfits", outfits), [user, outfits]);
   useEffect(() => {
     if (!composing) storeGroups(user, groups);
   }, [user, groups, composing]);
@@ -225,11 +229,12 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
     if (prefs.storefront === s.id) setPrefs((p) => ({ ...p, storefront: null }));
   };
 
-  // Removing a group takes its bag and orders with it
+  // Removing a group takes its bag, orders and outfit picture with it
   const removeGroup = (g: Group) => {
     setGroups((gs) => gs.filter((x) => x.id !== g.id));
     setBags((b) => without(b, g.id));
     setOrders((o) => without(o, g.id));
+    setOutfits((o) => without(o, g.id));
     if (activeId === g.id) setActiveId(null);
   };
 
@@ -295,6 +300,8 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
             onAdd={addToBag}
             onOpen={(piece) => setPanel({ kind: "piece", piece })}
             onRemoveFilter={removeFilter}
+            outfitImage={outfits[front.id] ?? null}
+            onOutfitImage={(image) => setOutfits((o) => ({ ...o, [front.id]: image }))}
             composer={<Composer placeholder="Refine it: sneakers for shoes, carousel, add buy buttons" composing={composing} onPrompt={(p) => run(p)} />}
           />
         ) : (

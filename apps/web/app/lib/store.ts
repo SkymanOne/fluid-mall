@@ -18,6 +18,10 @@ export type Group = {
   sizes: Record<string, string>;
 };
 
+// An AI picture of an outfit group, stored per group id beside the groups. key: the picked piece ids it shows.
+// spots: where each of those pieces sits in the picture, 0 to 1 from the top left
+export type OutfitImage = { src: string; key: string; spots: { id: string; x: number; y: number }[] };
+
 // A storefront is how groups look, independent of what is in them. The description is read by the agent
 // to reuse it for a similar request, and by Jev to restyle a page like it
 export type Storefront = { id: string; name: string; description: string; savedAt: string; template: StorefrontTemplate };

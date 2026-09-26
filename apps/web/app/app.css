@@ -9,6 +9,9 @@
     --font-heading: "Sofia Sans Condensed", "Sofia Sans", system-ui, sans-serif;
     --font-numeral: "Sofia Sans Extra Condensed", "Sofia Sans Condensed", system-ui, sans-serif;
     --color-faint: var(--faint);
+    --color-photo-tag: var(--photo-tag);
+    --color-photo-tag-foreground: var(--photo-tag-foreground);
+    --color-photo-ink: var(--photo-ink);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -85,6 +88,10 @@
     --sidebar-accent-foreground: #121212;
     --sidebar-border: #D5D2CA;
     --sidebar-ring: #2F45FF;
+    /* Tags on the outfit photo. The photo is always a light studio shot, so themes leave these alone */
+    --photo-tag: #121212;
+    --photo-tag-foreground: #FFFFFF;
+    --photo-ink: #5C5A55;
 }
 
 .theme-backstage {

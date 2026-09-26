@@ -62,7 +62,16 @@ compose-dev:
     export SUPABASE_ANON_KEY="$(grep '^VITE_SUPABASE_PUBLISHABLE_KEY=' apps/web/.env | cut -d= -f2- | tr -d '"')"
     DENO_NO_PACKAGE_JSON=1 deno run --no-lock --env-file=.env --allow-net --allow-env --allow-read supabase/functions/compose/index.ts --local
 
-# Push secrets from .env and deploy the compose Edge Function to the linked project
+# Run the outfit-image Edge Function on :8001 without Docker. Set COMPOSE_DEV_SKIP_AUTH=1 to skip the JWT check
+outfit-image-dev port="8001":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export SUPABASE_URL="$(grep '^VITE_SUPABASE_URL=' apps/web/.env | cut -d= -f2- | tr -d '"')"
+    export SUPABASE_ANON_KEY="$(grep '^VITE_SUPABASE_PUBLISHABLE_KEY=' apps/web/.env | cut -d= -f2- | tr -d '"')"
+    DENO_SERVE_ADDRESS=tcp:0.0.0.0:{{port}} DENO_NO_PACKAGE_JSON=1 deno run --no-lock --env-file=.env --allow-net --allow-env --allow-read supabase/functions/outfit-image/index.ts --local
+
+# Push secrets from .env and deploy the compose and outfit-image Edge Functions to the linked project
 compose-deploy:
     pnpm supabase secrets set --env-file .env
     pnpm supabase functions deploy compose
+    pnpm supabase functions deploy outfit-image
