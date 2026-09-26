@@ -88,6 +88,8 @@ just outfit-image-dev   # run the outfit-image function locally on :8001
 just compose-deploy     # push secrets from .env and deploy both functions
 ```
 
+Pushes to `main` that change `supabase/functions` deploy the functions automatically (`.github/workflows/deploy-supabase.yml`). The repo needs the secrets `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_ID`. Function secrets are set once with `just compose-deploy`.
+
 For local work set `VITE_COMPOSE_URL=http://localhost:8000` and `VITE_OUTFIT_IMAGE_URL=http://localhost:8001` in `apps/web/.env.development.local`. `/preview` renders the app without sign in, in dev only.
 
 ### Phone
