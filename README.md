@@ -6,7 +6,7 @@ Live: [web app](https://fluid-web-azure.vercel.app) · [landing page](https://fl
 
 ## Fluid UIs
 
-Every page is a [json-render](https://json-render.dev) spec composed for one request. [Jev](https://json-render.dev/docs/jev) (TypeSafe) picks and arranges components from a fixed catalog (sections, grids, carousels, filters, sort, size guides, delivery and returns facts) and edits the page in place when you ask. It never writes code or copy. Code binds the real products into Jev's design, so one change reaches every item.
+Every page is a [json-render](https://json-render.dev) spec composed for one request. [Jev](https://json-render.dev/docs/jev) (TypeSafe) picks and arranges components from a fixed catalog (sections, grids, carousels, filters, sort, size guides, delivery and returns facts) and edits the page in place when you ask.
 
 ## Features
 
