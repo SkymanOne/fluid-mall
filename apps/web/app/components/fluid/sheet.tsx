@@ -317,6 +317,8 @@ const registry: Record<string, Part> = {
   Label: ({ el }) => {
     const piece = useRender().group.pieces[String(el.props.id)];
     const text = labelText[el.props.kind as LabelKind];
+    // The delivery line already says free, a second badge would repeat it
+    if (el.props.kind === "free_delivery" && piece && freeDelivery(piece)) return null;
     return piece && text ? (
       <Badge variant={el.props.kind === "few_left" ? "secondary" : "outline"} className="self-start">
         {text}
