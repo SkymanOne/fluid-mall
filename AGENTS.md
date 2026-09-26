@@ -1,6 +1,6 @@
 # Fluid Mall agent guide
 
-Read `README.md` first for the product brief, stack and setup. Expo rules for `apps/mobile` are in `apps/mobile/AGENTS.md`.
+Read `README.md` first for the product brief, stack and setup, and `PRODUCT.md` for product truth.
 
 ## Context
 
@@ -14,26 +14,55 @@ Demo path, in priority order. Build and keep this working before anything else:
 4. Prompt to change layout, categories, details shown and theme. Preferences persist.
 5. Add items from two or more merchants to one cart.
 6. Simulated checkout splits into per-merchant orders with payment, shipping and tracking.
-7. Bonus on iOS: camera capture to find similar items, outfit image generation.
+7. Bonus on the phone (PWA): camera capture to find similar items, outfit image generation.
 
 ## Architecture
 
-- **Clients** (`apps/web`, `apps/mobile`) render screens from `packages/app` and call Edge Functions through the Supabase client. They hold only the Supabase URL and publishable key.
-- **Edge Functions** (`supabase/functions`) run the Grok agent loop, product search, Jev composition and image generation. All AI and merchant keys live here.
-- **Postgres** stores users' preferences, saved UI specs, normalized products, carts, orders and saved items. Storage holds user photos and captured images.
+- **Client** (`apps/web`) is one React Router SPA, installable as a PWA for phones. It streams from the `compose` Edge Function, renders the UI spec it gets back, and holds only the Supabase URL and publishable key.
+- **Edge Function** `compose` (`supabase/functions/compose`) runs the intent pipeline below. All AI keys live here.
+- **Browser storage** holds groups, bags, orders and saved storefronts for now. Postgres and Storage take over when they need to follow the user across devices.
 
-Agent tools, one Edge Function concern each: search products, get product details, compose UI, save preference, update cart, checkout.
+### Intent driven shopping
+
+Every prompt is a shopping intent. It runs as some of these four steps, in this order:
+
+| Step | Who | What |
+| --- | --- | --- |
+| 1. Search items | Generic agent (Grok) | Reads the request and plans: new group or change to the current one, outfit or set, which categories to search, the queries, filters (colour, budget, size), and the part of the request about the page. Live search runs the queries. |
+| 2. Compose UI | Jev | Builds a new UI tree for the shopping context and the items returned, from the component catalog and code built candidates. |
+| 3. Refine UI | Jev | Merges a UI change into the existing tree with the json-render edit protocol (`initialSpec`): add, replace, remove, move. Unchanged elements stay. |
+| 4. Update items | Generic agent (Grok) | Searches again for a follow-up ("sneakers for shoes") and swaps the items in code, keeping the UI structure. |
+
+Examples:
+- "I wanna look cool at a tech event": search (1), then compose (2).
+- "show each category as a carousel", "add a buy button to each item", "dark mode", "only tops": refine only (3). No search, items stay.
+- "I want sneakers for shoes": update the shoes (4). Other categories stay.
+- "black jeans under £80" while an outfit is open: a new group, so search (1) and compose (2).
+
+Rules:
+- Jev only composes and edits UI. It never writes text, code or product data, it picks from candidates code prepared (see the json-render playground, `https://json-render.dev/playground`).
+- The generic agent never writes UI. It plans searches and hands UI wording to Jev.
+- Items change only through search or update steps. UI steps never reload or alter items.
 
 ### Product data
+
+Shoppers stay in Fluid. A piece carries what its shop page offers: all photos, brand, the shop's description, detail facts (material, fit, care), rating, other colours, sizes and stock, every UK delivery option and returns. The detail view shows all of it and the shop link is only a quiet source line. Everything is extracted from the shop's own data, never written by a model.
 
 Every source (Shopify, Tavily, seed) maps to one normalized product shape before it reaches the agent or the UI. Required fields: merchant, title, images, price and currency, variants and sizes, availability, shipping policy, delivery estimate, returns policy, source URL, fetched at. Unknown values stay `null` and the UI shows them as unknown with a link to the merchant.
 
 ### Fluid UI
 
-- Jev picks and arranges components from our catalog. Candidates are built from normalized products, user preferences and prepared copy.
-- Catalog components live in `packages/app` as React Native components so one catalog renders on web (react-native-web) and iOS.
-- Saved specs are stored per user so the UI comes back as they left it. A new prompt edits the current spec (`initialSpec`) instead of starting over.
-- Themes are tokens (colours, radius, font scale, density) stored in preferences and applied by the renderer. Components read tokens and never hardcode colours.
+- The UI is a json-render flat spec. The catalog is listed in `apps/web/app/lib/types.ts`:
+  - Layout: Page, Section (folds from its heading, Jev can start it folded), Stack, Grid, Carousel, List, Separator.
+  - Items: ProductCard with SizePicker, AddToBag, Delivery, Returns, StockBadge and Label inside.
+  - Page content: Heading, Text, Callout, Filters (by size, colour, delivery or price, applied in the browser), CompareTable, ShopSummary, OutfitTotal.
+  Props are literal values from code, never model text. Heading and Text use prepared copy. Label and Callout state facts computed from piece data (cheapest, fastest delivery, free UK delivery, few left, long returns, samples shown, delivery unknown).
+- Jev designs, code binds. Jev sees one sample ProductCard per section and its candidates (detail parts, labels), sections per category (open or folded), containers in three sizes and Page variants per theme and density. Code then loads every piece of the section into the sample card's design (`bind` in `supabase/functions/compose/ui.ts`), so a change to the sample reaches every item and Jev's question stays the same size however many items there are. Items cannot be styled one by one.
+- Search returns 10 items per category unless the shopper names a number. Pieces without a photo are dropped. Below 7, fictional samples matching the query fill in.
+- `apps/web/app/components/fluid` renders any valid spec with shadcn components. A new catalog component needs a candidate on the server and a renderer on the client.
+- A storefront is how a group looks, independent of its items. Saving one stores its UI tree as JSON with the products taken out (`toTemplate` in `apps/web/app/lib/template.ts`, mirrored in the function). When the shopper picks it for new searches, the products found load into it (`fromTemplate`) instead of a fresh Jev composition. "Use here" loads the open group's products into it without a request. Refine steps still run on top.
+- Saved storefronts live in browser storage for now. ponytail: move them to a Supabase table with owner-only RLS when they need to follow the user across devices.
+- Themes are tokens in `apps/web/app/app.css`. Components read tokens and never hardcode colours.
 
 ## Guardrails
 
@@ -57,7 +86,7 @@ Every source (Shopify, Tavily, seed) maps to one normalized product shape before
 
 ### Secrets and data
 
-- `XAI_API_KEY`, `AI_GATEWAY_API_KEY`, `TAVILY_API_KEY` and Shopify tokens stay in Edge Function secrets. Never put them in `VITE_*` or `EXPO_PUBLIC_*` vars, which ship to the client.
+- `XAI_API_KEY`, `TYPESAFE_API_KEY` and `TAVILY_API_KEY` stay in Edge Function secrets. Never put them in `VITE_*` or `EXPO_PUBLIC_*` vars, which ship to the client.
 - Only `.env.example` files are committed.
 - Every table has RLS enabled with owner-only policies unless data is intentionally public (seeded catalog). Every Edge Function checks the caller's JWT.
 - Sign up stays behind invite codes (`before_user_created` hook).
@@ -72,12 +101,12 @@ Every source (Shopify, Tavily, seed) maps to one normalized product shape before
 ## Engineering rules
 
 - pnpm only. Use `just` recipes and add a recipe for any new common command.
-- Shared code in `packages/app` uses React Native primitives only. No DOM, `window` or native-only modules there. Platform code goes in the app and is passed in as props or context.
-- iOS-only features (camera) need a web fallback (file upload or paste) or a clear hidden state on web. Web leads the demo.
+- UI is shadcn/ui. Add components with `pnpm dlx shadcn@latest add <name>` in `apps/web` and follow `.agents/skills/shadcn`. Theme through the tokens in `app/app.css`, not per-component colours.
+- Phone features use web APIs (`<input capture>`, `getUserMedia`) so they work in the installed PWA.
 - Web stays in React Router SPA mode. No server loaders, server work goes to Edge Functions.
-- Mobile deps go through `pnpm --filter mobile exec expo install <pkg>`. Never edit `apps/mobile/ios`, it is generated.
 - Schema changes go through `pnpm supabase migration new <name>`. Never edit a migration that has been pushed.
-- Jev APIs are `experimental_`. Pin exact versions of `@json-render/*`.
+- Jev APIs are `experimental_`. Pin exact versions of `@json-render/*`. Read `.agents/skills/typesafe-ai` and the json-render Jev docs before changing candidates or instructions.
+- Never preload or hardcode real shop products. Products come from live search at request time, or from the fictional mock set.
 - Run `just typecheck` before calling a task done.
 - Keep it small. Mock or seed anything that blocks the demo path and mark shortcuts with a `ponytail:` comment naming the limit.
 

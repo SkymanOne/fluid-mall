@@ -8,26 +8,33 @@ Built for the [Grok Bot Commerce London Hackathon](https://gb-ecommerce-hackatho
 
 ## Features
 
-- **Prompt to shop.** Free text request ("summer wedding outfit under £300, size M") becomes a tailored UI with matching products.
-- **Fluid UI.** [Jev](https://json-render.dev/docs/jev) composes pre-made components from our catalog into a [json-render](https://json-render.dev) spec. The buyer prompts to change layout, categories and how items are presented.
-- **Many merchants.** Products come from Shopify stores (Storefront API), the open web (Tavily search and extract) and a seeded catalog in Supabase.
-- **Buying details.** Availability, sizes and variants, price, shipping policy, delivery time and returns policy for every item. The buyer can ask for any of them and the UI shows them.
-- **Personalisation.** Themes, colours, layout and shopping preferences are saved per user and reused next time.
-- **One cart, agent checkout.** A single cart across merchants. Agents split it into per-merchant orders and fulfil them. Payment, shipping and tracking are simulated for the hackathon.
-- **Camera (iOS).** Photo, scan or screenshot an item, save it for later, then search for it or find something similar.
-- **Outfit previews.** Generate images of the buyer wearing the outfit they are shopping for, from their own photos (Grok image model).
+- **Ask once.** A centred "What are you shopping for?" takes an outfit ("look cool at a tech event") or one item ("black jeans under £80").
+- **Groups.** Every request becomes a group: an outfit (top, bottom, shoes, with other options per slot) or a set (a grid or list of one kind of item). Groups live in a hideable side panel.
+- **One bag per group.** Add to bag on every item, or a whole outfit at once. Each bag checks out on its own, split per shop. Checkout is simulated.
+- **Talk to the page.** Change the items ("sneakers for shoes", "only black") or the page ("show each category as a carousel", "add a buy button to each item", "dark mode", "only tops"). Page requests are Jev edits on the existing tree and never reload the items.
+- **Storefronts.** How a group looks (grid, carousel or list, buy buttons, details, theme, spacing) is a storefront, saved as a JSON template without its products. Use it for new searches and the products found load straight into it, or use it on the open group.
+- **Buying details.** Price in GBP, sizes, stock, UK delivery cost and time, and returns for every piece, read live from the shop. Unknown stays unknown.
+- **Phone.** Installable PWA. Camera capture and outfit previews come next.
+
+## How a request runs
+
+Each prompt is an intent made of up to four steps (details in `AGENTS.md`):
+
+1. **Search items.** Grok, a generic agent, plans the searches and live search finds pieces in UK shops.
+2. **Compose UI.** Jev designs the page from a component catalog with one sample card per category. Code loads every piece returned into that design.
+3. **Refine UI.** Jev edits the existing page for requests like "carousel", "add a buy button" or "dark mode". Items stay.
+4. **Update items.** Grok searches again for a follow-up like "sneakers for shoes" and only those items change.
 
 ## Stack
 
 | Part | Tech |
 | --- | --- |
 | Landing | React Router, prerendered |
-| Web app (demo lead) | React Router SPA, react-native-web, hosted on Vercel |
-| iOS app | Expo, Expo Router |
-| Shared UI | `packages/app`, React Native components used by web and iOS |
+| Web app | React Router SPA, installable PWA, hosted on Vercel |
+| UI | shadcn/ui (Radix, Nova preset) on Tailwind v4, Look Sheet tokens in `apps/web/app/app.css` |
 | Backend | Supabase (Postgres, Auth, Storage, Edge Functions) |
-| Agent | Grok text model with tool calls, in Edge Functions |
-| UI composition | Jev with json-render |
+| Agent | `compose` Edge Function: Grok plans and searches, Jev composes and refines the UI |
+| UI composition | Jev (TypeSafe API) with json-render `experimental_composeSpec`, like the json-render playground |
 | Outfit images | Grok image model |
 | Product sources | Shopify Storefront API, Tavily, seeded Supabase catalog |
 
@@ -35,21 +42,20 @@ Built for the [Grok Bot Commerce London Hackathon](https://gb-ecommerce-hackatho
 
 - `apps/landing` landing page with links to the web app and the App Store
 - `apps/web` web app
-- `apps/mobile` iOS app
-- `packages/app` screens, json-render catalog components and Supabase hooks shared by web and iOS
+- `apps/web/app/components/ui` shadcn components
+- `apps/web/app/components/fluid` storefront screens that render the json-render spec
 - `supabase` config, migrations, seed and Edge Functions
 - `mockups` UI mocks (tldraw)
 
 ## Setup
 
-Needs Node 22.22+, pnpm 12, [just](https://github.com/casey/just), Docker for local Supabase and Xcode for iOS.
+Needs Node 22.22+, pnpm 12, [just](https://github.com/casey/just) and Docker for local Supabase.
 
 ```sh
 just install
 cp apps/landing/.env.example apps/landing/.env
-just db     # local Supabase in Docker, writes .env.development.local for web and mobile
+just db     # local Supabase in Docker, writes apps/web/.env.development.local
 just dev    # landing on :5174, web on :5173
-just ios    # iOS simulator
 ```
 
 Run `just` to list every recipe.
@@ -63,7 +69,7 @@ just db-link <project-ref>
 just db-push
 ```
 
-Then enable the `before_user_created` hook in Auth > Hooks, pointing at `public.hook_require_invite_code`. Put the project URL and publishable key in `apps/web/.env` and `apps/mobile/.env` (see `.env.example`).
+Then enable the `before_user_created` hook in Auth > Hooks, pointing at `public.hook_require_invite_code`. Put the project URL and publishable key in `apps/web/.env` (see `.env.example`).
 
 Add invite codes with SQL:
 
@@ -73,17 +79,15 @@ insert into public.invite_codes (code, uses_left) values ('FRIENDS', 10);
 
 ### Server secrets
 
-AI and merchant keys live only in Edge Function secrets, never in app env files.
+AI keys live in the root `.env` (gitignored) and in Edge Function secrets, never in app env files: `XAI_API_KEY`, `TYPESAFE_API_KEY`, `TAVILY_API_KEY`.
 
 ```sh
-pnpm supabase secrets set XAI_API_KEY=... AI_GATEWAY_API_KEY=... TAVILY_API_KEY=...
+just compose-dev      # run the compose function locally on :8000
+just compose-deploy   # push secrets from .env and deploy the function
 ```
 
-Shopify store domains and Storefront tokens go in the same place.
+For local work set `VITE_COMPOSE_URL=http://localhost:8000` in `apps/web/.env.development.local`. `/preview` renders the app without sign in, in dev only.
 
-### iOS on a device
+### Phone
 
-```sh
-just ios-device           # debug build, needs the phone to reach Metro on the Mac
-just ios-device-release   # JS bundled in, works on networks that block device to device traffic
-```
+Fluid is a PWA. Open the web app on the phone and add it to the Home Screen. `public/manifest.webmanifest` and `public/sw.js` make it installable.

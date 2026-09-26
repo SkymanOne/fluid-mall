@@ -17,19 +17,6 @@ landing:
 web:
     pnpm --filter web dev
 
-# Run iOS app in the simulator
-ios:
-    pnpm --filter mobile exec expo start --ios
-
-# Build and install iOS app on a connected iPhone, pass device name or UDID to skip the picker
-# Serves Metro on the Tailscale IP when Tailscale is up, for networks that block device to device traffic
-ios-device *device:
-    REACT_NATIVE_PACKAGER_HOSTNAME="$(tailscale status >/dev/null 2>&1 && tailscale ip -4)" pnpm --filter mobile exec expo run:ios --device {{device}}
-
-# Same as ios-device but Release with the JS bundled in, works when the phone cannot reach Metro
-ios-device-release *device:
-    pnpm --filter mobile exec expo run:ios --configuration Release --device {{device}}
-
 # Build landing page and web app
 build:
     pnpm --filter landing --filter web build
@@ -66,3 +53,16 @@ db-link ref:
 # Push migrations to the linked hosted project
 db-push:
     pnpm supabase db push
+
+# Run the compose Edge Function on :8000 without Docker. Set COMPOSE_DEV_SKIP_AUTH=1 to skip the JWT check
+compose-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export SUPABASE_URL="$(grep '^VITE_SUPABASE_URL=' apps/web/.env | cut -d= -f2- | tr -d '"')"
+    export SUPABASE_ANON_KEY="$(grep '^VITE_SUPABASE_PUBLISHABLE_KEY=' apps/web/.env | cut -d= -f2- | tr -d '"')"
+    DENO_NO_PACKAGE_JSON=1 deno run --no-lock --env-file=.env --allow-net --allow-env --allow-read supabase/functions/compose/index.ts --local
+
+# Push secrets from .env and deploy the compose Edge Function to the linked project
+compose-deploy:
+    pnpm supabase secrets set --env-file .env
+    pnpm supabase functions deploy compose

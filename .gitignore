@@ -11,18 +11,10 @@ node_modules/
 .react-router/
 build/
 
-# Expo
-.expo/
-dist/
-expo-env.d.ts
-.metro-health-check*
-apps/mobile/ios/
-apps/mobile/android/
-*.jks
+# Keys and certificates
 *.p8
 *.p12
 *.key
-*.mobileprovision
 *.pem
 
 # Agents bs

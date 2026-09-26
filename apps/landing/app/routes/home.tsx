@@ -1,14 +1,14 @@
 export function meta() {
-  return [{ title: "Fluid Mall" }];
+  return [{ title: "Fluid" }];
 }
 
 export default function Home() {
   return (
     <main>
-      <h1>Fluid Mall</h1>
-      <a href={import.meta.env.VITE_WEB_APP_URL}>Open web app</a>
-      <br />
-      <a href={import.meta.env.VITE_IOS_APP_URL}>Download for iOS</a>
+      <h1>Fluid</h1>
+      <p>Shopping mall in your hands</p>
+      <a href={import.meta.env.VITE_WEB_APP_URL}>Open Fluid</a>
+      <p>On your phone, open Fluid in the browser and add it to your Home Screen.</p>
     </main>
   );
 }
