@@ -323,7 +323,7 @@ const registry: Record<string, Part> = {
   },
   Callout: ({ el }) => (
     // Warnings are facts to check, not errors, so no red
-    <Alert>
+    <Alert role="status">
       {el.props.tone === "warning" ? <TriangleAlertIcon /> : <InfoIcon />}
       <AlertDescription>{String(el.props.text ?? "")}</AlertDescription>
     </Alert>
@@ -534,7 +534,10 @@ export function GroupView({
   const [facets, setFacets] = useState<Facets>({});
   useEffect(() => setFacets({}), [group.id]);
   const setFacet = (key: string, value: string | null) => setFacets((f) => ({ ...f, [key]: value ?? undefined }));
-  const shops = new Set(cards.map((e) => group.pieces[String(e.props.id)]?.merchant).filter(Boolean)).size;
+  // Made up sample shops are not counted as UK shops
+  const shown = cards.map((e) => group.pieces[String(e.props.id)]).filter((p): p is Piece => !!p);
+  const shops = new Set(shown.filter((p) => p.source === "live").map((p) => p.merchant)).size;
+  const samples = shown.some((p) => p.source === "mock");
   const last = group.entries[group.entries.length - 1];
   const theme = pageTheme(spec);
   useEffect(() => onTheme(theme), [theme, onTheme]);
@@ -542,13 +545,15 @@ export function GroupView({
   return (
     <div className="@container/sheet relative flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-[clamp(1rem,4cqi,3rem)] pt-6 pb-40">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-[clamp(1rem,4cqi,3rem)] pt-6 pb-12">
           <header className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
               <Badge variant="outline">{kindLabel(group)}</Badge>
               {cards.length > 0 && (
                 <span className="text-sm text-muted-foreground">
-                  {cards.length} {cards.length === 1 ? "piece" : "pieces"} from {shops} UK {shops === 1 ? "shop" : "shops"}
+                  {cards.length} {cards.length === 1 ? "piece" : "pieces"}
+                  {shops ? ` from ${shops} UK ${shops === 1 ? "shop" : "shops"}` : ""}
+                  {samples ? (shops ? ", plus samples" : ", all samples") : ""}
                 </span>
               )}
             </div>
@@ -579,8 +584,9 @@ export function GroupView({
           )}
         </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="pointer-events-auto w-full max-w-2xl">{composer}</div>
+      {/* A solid band under the page, not a floating bar, so it never covers a size picker or Add to bag */}
+      <div className="flex shrink-0 justify-center border-t border-border bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-2xl">{composer}</div>
       </div>
     </div>
   );

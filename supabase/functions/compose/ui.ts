@@ -177,11 +177,14 @@ export function labelsFor(p: Piece, all: Piece[]): LabelKind[] {
   const days = peers.map((x) => x.ukDelivery?.maxDays).filter((d): d is number => typeof d === "number");
   const open = (p.sizes ?? []).filter((s) => s.available).length;
   const kinds: LabelKind[] = [];
-  if (peers.length > 1 && p.price === Math.min(...peers.map((x) => x.price))) kinds.push("cheapest");
-  if (days.length > 1 && p.ukDelivery?.maxDays === Math.min(...days)) kinds.push("fastest");
+  // Cheapest and fastest only go to a single winner, a tie says nothing
+  const least = (values: number[], mine: number | undefined) => mine !== undefined && values.filter((v) => v === Math.min(...values)).length === 1 && mine === Math.min(...values);
+  if (peers.length > 1 && least(peers.map((x) => x.price), p.price)) kinds.push("cheapest");
+  if (days.length > 1 && least(days, p.ukDelivery?.maxDays ?? undefined)) kinds.push("fastest");
   if (freeDelivery(p)) kinds.push("free_delivery");
   if (open > 0 && open <= 2 && (p.sizes ?? []).length > 3) kinds.push("few_left");
-  if ((p.returns?.days ?? 0) >= 28) kinds.push("long_returns");
+  // 28 days is the UK norm, longer than that is worth a label
+  if ((p.returns?.days ?? 0) > 28) kinds.push("long_returns");
   return kinds;
 }
 

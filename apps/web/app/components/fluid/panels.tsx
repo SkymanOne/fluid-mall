@@ -46,7 +46,7 @@ export function Composer({
         onPrompt(prompt);
       }}
     >
-      <InputGroup className={cn("rounded-full bg-background pl-2 shadow-[0_4px_20px_rgba(0,0,0,0.08)] has-disabled:bg-background has-disabled:opacity-100", hero ? "h-16" : "h-13")}>
+      <InputGroup className={cn("rounded-full bg-background pl-2 has-disabled:bg-background has-disabled:opacity-100 dark:bg-background", hero ? "h-16 shadow-[0_4px_20px_rgba(0,0,0,0.08)]" : "h-13")}>
         <InputGroupInput
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

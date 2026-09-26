@@ -85,7 +85,8 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs(user));
   const [storefronts, setStorefronts] = useState<Storefront[]>(() => loadStorefronts(user));
   const [groups, setGroups] = useState<Group[]>(() => loadGroups(user));
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // The open group survives a reload, so a shopper coming back lands where they left
+  const [activeId, setActiveId] = useState<string | null>(() => loadJson<string | null>(user, "active", null));
   const [composing, setComposing] = useState(false);
   const [bags, setBags] = useState<Record<string, BagLine[]>>(() => loadJson(user, "bags", {}));
   const [orders, setOrders] = useState<Record<string, Order[]>>(() => loadJson(user, "orders", {}));
@@ -103,6 +104,7 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
   useEffect(() => storePrefs(user, prefs), [user, prefs]);
   useEffect(() => storeJson(user, "bags", bags), [user, bags]);
   useEffect(() => storeJson(user, "orders", orders), [user, orders]);
+  useEffect(() => storeJson(user, "active", activeId), [user, activeId]);
   useEffect(() => {
     if (!composing) storeGroups(user, groups);
   }, [user, groups, composing]);
@@ -308,7 +310,7 @@ function Shell({ session, composeUrl, apiKey }: { session: Session; composeUrl: 
       </SidebarInset>
 
       <Panel open={!!panel} onOpenChange={(o) => !o && setPanel(null)}>
-        <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+        <SheetContent className="w-full overflow-y-auto data-[side=right]:w-full sm:data-[side=right]:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
           <SheetHeader>
             <SheetTitle className="font-heading text-2xl font-bold">
               {panel?.kind === "piece" ? "Details" : panel?.kind === "customise" ? "Storefronts" : "Your bags"}

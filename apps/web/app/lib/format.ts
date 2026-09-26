@@ -27,17 +27,20 @@ export function stockState(piece: Piece, size?: string) {
   return "IN STOCK";
 }
 
+// One rule for the card line, the free delivery label and the bag, so they never disagree
 export function deliveryLine(piece: Piece) {
   const d = piece.ukDelivery;
-  if (!d || (d.price === null && d.days === null)) return `UK delivery unknown, check at ${piece.merchant}`;
-  const cost = d.price === null ? "cost unknown" : d.price === 0 ? "free" : gbp(d.price);
-  const free = d.freeOver !== null && d.price !== 0 ? `, free over ${gbp(d.freeOver)}` : "";
+  if (freeDelivery(piece)) return `Free UK delivery${d?.days ? `, ${d.days}` : ""}`;
+  if (!d || (d.price === null && d.days === null && d.freeOver === null)) return `UK delivery unknown, check at ${piece.merchant}`;
+  const cost = d.price === null ? "cost unknown" : gbp(d.price);
+  const free = d.freeOver !== null ? `, free over ${gbp(d.freeOver)}` : "";
   return `UK delivery ${cost}${free}${d.days ? `, ${d.days}` : ""}`;
 }
 
 export function returnsLine(piece: Piece) {
   const r = piece.returns;
-  if (!r || r.days === null) return `Returns unknown, check at ${piece.merchant}`;
+  if (!r || (r.days === null && !r.note)) return `Returns unknown, check at ${piece.merchant}`;
+  if (r.days === null) return `Returns: ${r.note}`;
   return `${r.days} day returns${r.note ? `. ${r.note}` : ""}`;
 }
 

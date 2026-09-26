@@ -43,9 +43,7 @@ export function Bags({
           <div className="flex items-baseline gap-3 px-6">
             <h3 className="min-w-0 flex-1 font-heading text-xl leading-tight font-bold first-letter:uppercase">{g.label}</h3>
             {(bags[g.id]?.length || orders[g.id]?.length) ? (
-              <Button variant="ghost" size="sm" onClick={() => onClear(g.id)} aria-label={`Clear the bag for ${g.label}`}>
-                Clear
-              </Button>
+              <ClearButton label={g.label} onClear={() => onClear(g.id)} />
             ) : null}
           </div>
           <Bag lines={bags[g.id] ?? []} orders={orders[g.id] ?? []} onRemove={(i) => onRemove(g.id, i)} onPlace={(o) => onPlace(g.id, o)} />
@@ -164,5 +162,26 @@ function Bag({ lines, orders, onRemove, onPlace }: { lines: BagLine[]; orders: O
         </div>
       )}
     </div>
+  );
+}
+
+// Clearing takes two taps, the second one says what it does
+function ClearButton({ label, onClear }: { label: string; onClear: () => void }) {
+  const [sure, setSure] = useState(false);
+  useEffect(() => {
+    if (!sure) return;
+    const t = setTimeout(() => setSure(false), 4000);
+    return () => clearTimeout(t);
+  }, [sure]);
+  return (
+    <Button
+      variant={sure ? "destructive" : "ghost"}
+      size="sm"
+      className="min-h-10"
+      onClick={() => (sure ? onClear() : setSure(true))}
+      aria-label={sure ? `Confirm clearing the bag for ${label}` : `Clear the bag for ${label}`}
+    >
+      {sure ? "Clear bag?" : "Clear"}
+    </Button>
   );
 }

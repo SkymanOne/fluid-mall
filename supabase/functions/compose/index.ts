@@ -312,7 +312,7 @@ async function search(plan: Plan, intent: Intent, signal: AbortSignal, note: (t:
 }
 
 // Words in a title or shop url that mark a piece for the other gender
-const OTHER_GENDER = { men: /\b(women|womens|ladies|female)\b/i, women: /\b(men|mens|male)\b/i };
+const OTHER_GENDER = { men: /\b(women|womens|womenswear|ladies|female)\b/i, women: /\b(men|mens|menswear|male)\b/i };
 
 // Drops pieces over budget, clearly in the wrong colour, for the other gender or without the shopper's size, and says so
 function applyFilters(pieces: Piece[], intent: Intent, note?: (t: string) => void): Piece[] {
@@ -320,7 +320,7 @@ function applyFilters(pieces: Piece[], intent: Intent, note?: (t: string) => voi
   if (note && noSize.length) note(`Dropped ${count(noSize.length, "piece")} not in stock in ${intent.size}`);
   pieces = pieces.filter((p) => !noSize.includes(p));
   const gender = intent.gender;
-  const otherGender = pieces.filter((p) => gender && OTHER_GENDER[gender].test(`${p.title} ${p.url.replace(/[-_/.']/g, " ")}`));
+  const otherGender = pieces.filter((p) => gender && OTHER_GENDER[gender].test(`${p.title} ${p.url.replace(/[-_/.']/g, " ")} ${p.description ?? ""}`));
   if (note && otherGender.length) note(`Dropped ${count(otherGender.length, "piece")} for ${gender === "men" ? "women" : "men"}`);
   pieces = pieces.filter((p) => !otherGender.includes(p));
   const overBudget = pieces.filter((p) => intent.budget && p.price > intent.budget);
