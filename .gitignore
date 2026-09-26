@@ -1,0 +1,31 @@
+node_modules/
+.DS_Store
+*.tsbuildinfo
+*.log
+
+# Env files. Only examples are committed
+.env*
+!.env.example
+
+# React Router
+.react-router/
+build/
+
+# Expo
+.expo/
+dist/
+expo-env.d.ts
+.metro-health-check*
+apps/mobile/ios/
+apps/mobile/android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Agents bs
+.claude
+.agents
+.pi

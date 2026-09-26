@@ -1,0 +1,22 @@
+{
+  "name": "@fluid-mall/app",
+  "private": true,
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc"
+  },
+  "peerDependencies": {
+    "@supabase/supabase-js": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.117.2",
+    "@types/react": "~19.2.2",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "typescript": "~6.0.3"
+  }
+}

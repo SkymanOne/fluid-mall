@@ -1,0 +1,11 @@
+{
+  "name": "fluid-mall",
+  "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "devDependencies": {
+    "supabase": "2.118.0"
+  }
+}

@@ -1,0 +1,8 @@
+import { reactRouter } from "@react-router/dev/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter()],
+  server: { port: 5174 },
+  preview: { port: 5174 },
+});
