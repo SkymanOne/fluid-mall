@@ -1,21 +1,21 @@
-# Fluid Mall
+# Fluid
 
-One cart for every store, with a shop that builds itself around what you want.
+Shopping mall in your hands. Say what you want to wear. Fluid searches UK shops and builds a shop around your request. Pieces from every shop go in one bag.
 
-The buyer says what they want to buy or build. An agent searches several merchants, then composes a shopping interface for that request on the fly and fills it with real items. The buyer shapes it by prompting ("show me only linen", "compare delivery times", "dark theme"). Everything lands in one cart. At checkout, agents split the cart per merchant and handle payment, shipping and tracking.
+Live: [web app](https://fluid-web-azure.vercel.app) · [landing page](https://fluid-landing-nine.vercel.app). Built for the [Grok Bot Commerce London Hackathon](https://gb-ecommerce-hackathon-09-2026.teamdeel.workers.dev/hackathon) (26 September 2026, Storefront Experience track).
 
-Built for the [Grok Bot Commerce London Hackathon](https://gb-ecommerce-hackathon-09-2026.teamdeel.workers.dev/hackathon) (26 September 2026, Storefront Experience track).
+## Fluid UIs
+
+Every page is a [json-render](https://json-render.dev) spec composed for one request. [Jev](https://json-render.dev/docs/jev) (TypeSafe) picks and arranges components from a fixed catalog (sections, grids, carousels, filters, sort, size guides, delivery and returns facts) and edits the page in place when you ask. It never writes code or copy. Code binds the real products into Jev's design, so one change reaches every item.
 
 ## Features
 
-- **Ask once.** A centred "What are you shopping for?" takes an outfit ("look cool at a tech event") or one item ("black jeans under £80").
-- **Groups.** Every request becomes a group: an outfit (top, bottom, shoes, with other options per slot) or a set (a grid or list of one kind of item). Groups live in a hideable side panel.
-- **One bag per group.** Add to bag on every item, or a whole outfit at once. Each bag checks out on its own, split per shop. Checkout is simulated.
-- **Talk to the page.** Change the items ("sneakers for shoes", "only black") or the page ("show each category as a carousel", "add a buy button to each item", "dark mode", "only tops"). Page requests are Jev edits on the existing tree and never reload the items.
-- **Storefronts.** How a group looks (grid, carousel or list, buy buttons, details, theme, spacing) is a storefront, saved as a JSON template without its products. Use it for new searches and the products found load straight into it, or use it on the open group.
-- **Buying details.** Price in GBP, sizes, stock, UK delivery cost and time, and returns for every piece, read live from the shop. Unknown stays unknown.
-- **See the outfit.** "See this outfit" makes a shop the look photo of the picked pieces with the Grok image model, from their product photos. A tag on each piece shows shop, name and price and opens its details. The photo is labelled as AI and offers a new one when the outfit changes.
-- **Phone.** Installable PWA. Camera capture comes next.
+- **Say what you want to wear.** An outfit for an occasion ("I wanna look cool at a tech event") or one kind of item ("black jeans under £80"). Each request becomes its own group with its own bag.
+- **Change the page by asking.** A carousel, a list, dark mode, only tops, group by colour, filters by size. Fluid rebuilds the page around the same pieces. Saved looks are reusable storefront templates.
+- **One bag. Every shop.** At checkout Fluid splits the bag into an order per shop, each with its own delivery and returns. You confirm every total first. Checkout is simulated.
+- **Stock information. All in one place.** Price in GBP, sizes and stock, UK delivery and returns, read from the shop. Unknown stays unknown.
+- **See the outfit.** A shop the look photo of your picked pieces from the Grok image model, with a tag on each piece.
+- **Keep it on your phone.** Runs in the browser and installs like an app.
 
 ## How a request runs
 
