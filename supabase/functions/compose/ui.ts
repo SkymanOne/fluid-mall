@@ -672,6 +672,27 @@ function colourGroups(pieces: Piece[]) {
     .map((colour) => ({ title: colour === "other" ? "Other colours" : colour[0].toUpperCase() + colour.slice(1), slot: null, colour }));
 }
 
+// A layout change Jev made to only some sections (container type or photo size), repeated on every section.
+// null when there is nothing to repeat
+export function spreadLayout(before: Spec, after: Spec): Spec | null {
+  const layout = (spec: Spec) => {
+    const within = (id: string): string[] => [id, ...(spec.elements[id]?.children ?? []).flatMap(within)];
+    return new Map(Object.keys(spec.elements).filter((k) => spec.elements[k].type === "Section").map((s) => {
+      const box = within(s).find((k) => isContainer(spec.elements[k]?.type ?? ""));
+      return [s, box ? { id: box, type: spec.elements[box].type, props: spec.elements[box].props } : null] as const;
+    }));
+  };
+  const was = layout(before);
+  const now = layout(after);
+  const same = (a: { type: string; props: unknown }, b: { type: string; props: unknown }) => a.type === b.type && JSON.stringify(a.props) === JSON.stringify(b.props);
+  const changed = [...now].filter(([s, box]) => box && was.get(s) && !same(was.get(s)!, box));
+  if (!changed.length || changed.length === now.size) return null;
+  const model = changed[0][1]!;
+  const E = structuredClone(after.elements);
+  for (const [, box] of now) if (box) E[box.id] = { ...E[box.id], type: model.type, props: structuredClone(model.props) };
+  return { root: after.root, elements: E };
+}
+
 // The design Jev sees: each section keeps only its sample card
 function sample(spec: Spec, samples: Set<string>): Spec {
   const E = structuredClone(spec.elements);
@@ -894,5 +915,11 @@ export function demo() {
   console.assert(swapped.elements.page.children!.at(-1) === "saved", "page content leaves the card");
   const qs = Object.fromEntries(["a", "b", "c"].map((k) => [k, "x".repeat(40)]));
   console.assert(split({}, qs, 100).map((b) => Object.keys(b).join("")).join() === "ab,c" && split({}, qs).length === 1, "big batches split, small ones stay whole");
+  const listed = structuredClone(out);
+  const boxes = Object.keys(listed.elements).filter((k) => isContainer(listed.elements[k].type));
+  listed.elements[boxes[0]] = { ...listed.elements[boxes[0]], type: "List" };
+  const spread = spreadLayout(out, listed);
+  console.assert(!!spread && boxes.every((k) => spread.elements[k].type === "List"), "a layout change on one section reaches every section");
+  console.assert(spreadLayout(out, out) === null, "nothing changed, nothing to repeat");
   return "ok";
 }

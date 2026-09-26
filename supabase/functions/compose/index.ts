@@ -7,7 +7,7 @@ import { coloursIn, liveSearch } from "./live.ts";
 import { mockPieces } from "./mock.ts";
 import type { ComposeEvent, ComposeRequest, Intent, Piece, SlotName, Spec, SpecElement } from "./types.ts";
 import { fromTemplate } from "./template.ts";
-import { bind, checkSpec, composeUI, inOrder, LABEL, refineUI, type Setup } from "./ui.ts";
+import { bind, checkSpec, composeUI, inOrder, LABEL, refineUI, type Setup, spreadLayout } from "./ui.ts";
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -224,6 +224,7 @@ async function run(req: ComposeRequest, send: (e: ComposeEvent) => void, signal:
     };
     let stop = "error";
     const start = last;
+    const beforeRefine = spec;
     const budget = within(signal, 45000);
     // Jev sometimes finishes a request about every item after a few of them. A second round on the result picks up the rest
     for (let round = 0; round < 2; round++) {
@@ -239,6 +240,22 @@ async function run(req: ComposeRequest, send: (e: ComposeEvent) => void, signal:
     const page = spec.elements[spec.root];
     if (groupBy && page && (page.props.groupBy ?? "category") !== groupBy) {
       spec = bind({ root: spec.root, elements: { ...spec.elements, [spec.root]: { ...page, props: { ...page.props, groupBy } } } }, pieces, false);
+      last = sendSpec(send, spec, last);
+    }
+    // "Show all categories in a list": Jev often changes the first section only. Unless the request names one category,
+    // code repeats the layout change on every section
+    const namesOne = /\b(jackets?|coats?|outerwear|tops?|shirts?|t-?shirts?|bottoms?|trousers|jeans|shoes|trainers|sneakers|boots)\b/i.test(plan.ui);
+    const spread = namesOne ? null : spreadLayout(beforeRefine, spec);
+    if (spread) {
+      spec = spread;
+      last = sendSpec(send, spec, last);
+    }
+    // When Jev changes nothing, a plain "in a list", "as a carousel" or "to a grid" still sets every section's layout
+    const box = plan.ui.match(/\b(?:in|as|into|to)\s+an?\s+(list|carousel|grid)\b/i)?.[1];
+    const Box = box ? box[0].toUpperCase() + box.slice(1).toLowerCase() : null;
+    const boxes = Object.keys(spec.elements).filter((k) => ["Grid", "Carousel", "List"].includes(spec!.elements[k].type));
+    if (Box && !namesOne && boxes.some((k) => spec!.elements[k].type !== Box)) {
+      spec = { root: spec.root, elements: { ...spec.elements, ...Object.fromEntries(boxes.map((k) => [k, { ...spec!.elements[k], type: Box }])) } };
       last = sendSpec(send, spec, last);
     }
     // A second round that finds nothing left may say unavailable, that is not a failure
